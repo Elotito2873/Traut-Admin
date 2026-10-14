@@ -1,6 +1,6 @@
 {
-    "name": "traut_admin",
-    "short_name": "traut_admin",
+    "name": "Traut Admin",
+    "short_name": "Traut Admin",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

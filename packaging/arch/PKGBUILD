@@ -1,0 +1,18 @@
+# Ejemplo para un futuro paquete AUR traut-admin-bin. Actualiza URL y sha256sums
+# antes de publicar; este archivo no publica nada automáticamente.
+pkgname=traut-admin-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Centro administrativo multiplataforma del sistema Traut'
+arch=('x86_64')
+url='https://github.com/OWNER/Traut-Admin'
+license=('custom')
+depends=('gtk3' 'glib2' 'libsecret')
+source=("TrautAdmin-linux-x86_64-v${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/TrautAdmin-linux-x86_64-v${pkgver}.tar.gz")
+sha256sums=('SKIP') # Sustituir por el hash real antes de publicar.
+
+package() {
+  install -d "${pkgdir}/opt/traut-admin" "${pkgdir}/usr/bin"
+  cp -a "${srcdir}/bundle/." "${pkgdir}/opt/traut-admin/"
+  ln -s /opt/traut-admin/traut_admin "${pkgdir}/usr/bin/traut-admin"
+}

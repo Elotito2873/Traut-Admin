@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+APPDIR="$(cd "$(dirname "$0")" && pwd)"
+exec "${APPDIR}/usr/bin/traut_admin" "$@"

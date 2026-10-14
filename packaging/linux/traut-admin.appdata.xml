@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.traut.admin</id>
+  <name>Traut Admin</name>
+  <summary>Centro administrativo del sistema de transporte Traut</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <developer id="com.traut">
+    <name>Traut</name>
+  </developer>
+  <description>
+    <p>Monitorea unidades y administra rutas, paradas, conductores, viajes e incidencias del sistema de transporte Traut desde una interfaz accesible.</p>
+  </description>
+  <url type="homepage">https://github.com/Elotito2873/Traut-Admin</url>
+  <launchable type="desktop-id">com.traut.admin.desktop</launchable>
+  <content_rating type="oars-1.1" />
+  <provides>
+    <binary>traut_admin</binary>
+  </provides>
+</component>

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Traut Admin
+Comment=Centro administrativo del sistema Traut
+Exec=traut_admin
+Icon=traut-admin
+Categories=Utility;
+Terminal=false

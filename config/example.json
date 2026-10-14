@@ -1,0 +1,7 @@
+{
+  "SUPABASE_URL": "https://your-project.supabase.co",
+  "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_your_key",
+  "REQUIRE_ADMIN_MFA": "false",
+  "OSM_TILE_URL": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  "OSM_USER_AGENT": "com.traut.admin"
+}
