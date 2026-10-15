@@ -443,7 +443,9 @@ class _VehicleFormDialogState extends ConsumerState<VehicleFormDialog> {
   Widget build(BuildContext context) {
     final options = Future.wait([
       ref.read(routeRepositoryProvider).getRoutes(),
-      ref.read(driverRepositoryProvider).getDrivers(status: 'active'),
+      ref
+          .read(driverRepositoryProvider)
+          .getDrivers(page: 0, pageSize: 200, status: 'active'),
     ]);
     return AlertDialog(
       title: Text(widget.vehicle == null ? 'Nueva unidad' : 'Editar unidad'),
@@ -456,7 +458,7 @@ class _VehicleFormDialogState extends ConsumerState<VehicleFormDialog> {
               return const SizedBox(height: 240, child: LoadingPanel());
             }
             final routes = snapshot.data![0] as List<TransportRoute>;
-            final drivers = snapshot.data![1] as List<Driver>;
+            final drivers = (snapshot.data![1] as PagedResult<Driver>).items;
             return Form(
               key: _formKey,
               child: SingleChildScrollView(

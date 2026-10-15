@@ -15,6 +15,7 @@ enum AuthStage {
   mfaChallenge,
   mfaEnrollment,
   authenticated,
+  locked,
   unauthorized,
 }
 
@@ -93,13 +94,19 @@ class AuthController extends Notifier<AuthViewState> {
     }
   }
 
-  Future<void> _authorize() async {
-    state = const AuthViewState.initializing();
+  Future<void> _authorize({
+    bool requireAal2 = false,
+    bool preserveAdministrativeShell = false,
+  }) async {
+    if (!preserveAdministrativeShell) {
+      state = const AuthViewState.initializing();
+    }
     try {
       AdminAccess access;
       try {
         access = await ref.read(authorizeAdminUseCaseProvider)(
-          requireMfa: ref.read(appConfigProvider).requireAdminMfa,
+          requireMfa:
+              requireAal2 || ref.read(appConfigProvider).requireAdminMfa,
         );
       } on AppException catch (error) {
         if (error.code != 'not_admin') rethrow;
@@ -114,7 +121,9 @@ class AuthController extends Notifier<AuthViewState> {
       final gate = access.mfaGate;
       state = switch (gate.requirement) {
         MfaRequirement.challenge => AuthViewState(
-          stage: AuthStage.mfaChallenge,
+          stage: preserveAdministrativeShell
+              ? AuthStage.locked
+              : AuthStage.mfaChallenge,
           profile: profile,
           factorId: gate.factorId,
         ),
@@ -152,12 +161,40 @@ class AuthController extends Notifier<AuthViewState> {
     state = state.copyWith(busy: true);
     try {
       await _repository.verifyMfa(factorId: factorId, code: code);
-      state = AuthViewState(
-        stage: AuthStage.authenticated,
-        profile: state.profile,
+      await _authorize(
+        requireAal2: true,
+        preserveAdministrativeShell: state.stage == AuthStage.locked,
       );
     } catch (error) {
       state = state.copyWith(busy: false, error: userFriendlyError(error));
+    }
+  }
+
+  Future<void> lockForInactivity() async {
+    if (state.stage != AuthStage.authenticated) return;
+    final profile = state.profile;
+    try {
+      final factorId = await _repository.verifiedTotpFactorId();
+      if (factorId == null) {
+        await _repository.signOut();
+        state = const AuthViewState(
+          stage: AuthStage.signedOut,
+          error:
+              'La sesión se cerró por inactividad. Inicia sesión nuevamente.',
+        );
+        return;
+      }
+      state = AuthViewState(
+        stage: AuthStage.locked,
+        profile: profile,
+        factorId: factorId,
+      );
+    } catch (error) {
+      await _repository.signOut();
+      state = AuthViewState(
+        stage: AuthStage.signedOut,
+        error: userFriendlyError(error),
+      );
     }
   }
 

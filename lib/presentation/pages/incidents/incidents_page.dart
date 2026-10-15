@@ -16,6 +16,11 @@ class IncidentsPage extends ConsumerStatefulWidget {
 
 class _IncidentsPageState extends ConsumerState<IncidentsPage> {
   String? _status;
+  int _page = 0;
+  int _pageSize = 25;
+
+  IncidentQuery get _query =>
+      IncidentQuery(page: _page, pageSize: _pageSize, status: _status);
 
   void _refresh() {
     ref.invalidate(incidentsProvider);
@@ -24,7 +29,7 @@ class _IncidentsPageState extends ConsumerState<IncidentsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final incidents = ref.watch(incidentsProvider(_status));
+    final incidents = ref.watch(incidentsProvider(_query));
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -50,7 +55,10 @@ class _IncidentsPageState extends ConsumerState<IncidentsPage> {
                 ),
                 DropdownMenuItem(value: 'resolved', child: Text('Resueltas')),
               ],
-              onChanged: (value) => setState(() => _status = value),
+              onChanged: (value) => setState(() {
+                _status = value;
+                _page = 0;
+              }),
             ),
           ),
           const SizedBox(height: 16),
@@ -61,66 +69,90 @@ class _IncidentsPageState extends ConsumerState<IncidentsPage> {
                 loading: () => const LoadingPanel(),
                 error: (error, _) =>
                     ErrorPanel(error: error, onRetry: _refresh),
-                data: (items) {
+                data: (result) {
+                  final items = result.items;
                   if (items.isEmpty) {
                     return const EmptyPanel(
                       message: 'No hay incidencias para este filtro.',
                       icon: Icons.task_alt,
                     );
                   }
-                  return SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SingleChildScrollView(
-                      child: DataTable(
-                        columns: const [
-                          DataColumn(label: Text('Fecha')),
-                          DataColumn(label: Text('Unidad')),
-                          DataColumn(label: Text('Conductor')),
-                          DataColumn(label: Text('Tipo')),
-                          DataColumn(label: Text('Descripción')),
-                          DataColumn(label: Text('Estado')),
-                          DataColumn(label: Text('Acciones')),
-                        ],
-                        rows: [
-                          for (final incident in items)
-                            DataRow(
-                              cells: [
-                                DataCell(
-                                  Text(
-                                    DateFormat(
-                                      'dd/MM/yyyy HH:mm',
-                                    ).format(incident.createdAt.toLocal()),
+                  return Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SingleChildScrollView(
+                            child: DataTable(
+                              columns: const [
+                                DataColumn(label: Text('Fecha')),
+                                DataColumn(label: Text('Unidad')),
+                                DataColumn(label: Text('Conductor')),
+                                DataColumn(label: Text('Tipo')),
+                                DataColumn(label: Text('Descripción')),
+                                DataColumn(label: Text('Estado')),
+                                DataColumn(label: Text('Acciones')),
+                              ],
+                              rows: [
+                                for (final incident in items)
+                                  DataRow(
+                                    cells: [
+                                      DataCell(
+                                        Text(
+                                          DateFormat('dd/MM/yyyy HH:mm').format(
+                                            incident.createdAt.toLocal(),
+                                          ),
+                                        ),
+                                      ),
+                                      DataCell(
+                                        Text(
+                                          incident.vehicleCode ?? 'Sin unidad',
+                                        ),
+                                      ),
+                                      DataCell(
+                                        Text(
+                                          incident.driverName ??
+                                              'Sin conductor',
+                                        ),
+                                      ),
+                                      DataCell(Text(incident.type)),
+                                      DataCell(
+                                        SizedBox(
+                                          width: 260,
+                                          child: Text(
+                                            incident.description ??
+                                                'Sin descripción',
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ),
+                                      DataCell(
+                                        StatusBadge(status: incident.status),
+                                      ),
+                                      DataCell(
+                                        FilledButton.tonal(
+                                          onPressed: () =>
+                                              _openDetail(incident),
+                                          child: const Text('Abrir detalle'),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                DataCell(
-                                  Text(incident.vehicleCode ?? 'Sin unidad'),
-                                ),
-                                DataCell(
-                                  Text(incident.driverName ?? 'Sin conductor'),
-                                ),
-                                DataCell(Text(incident.type)),
-                                DataCell(
-                                  SizedBox(
-                                    width: 260,
-                                    child: Text(
-                                      incident.description ?? 'Sin descripción',
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ),
-                                DataCell(StatusBadge(status: incident.status)),
-                                DataCell(
-                                  FilledButton.tonal(
-                                    onPressed: () => _openDetail(incident),
-                                    child: const Text('Abrir detalle'),
-                                  ),
-                                ),
                               ],
                             ),
-                        ],
+                          ),
+                        ),
                       ),
-                    ),
+                      PagedTableFooter<Incident>(
+                        result: result,
+                        onPageSize: (value) => setState(() {
+                          _pageSize = value;
+                          _page = 0;
+                        }),
+                        onPage: (value) => setState(() => _page = value),
+                      ),
+                    ],
                   );
                 },
               ),

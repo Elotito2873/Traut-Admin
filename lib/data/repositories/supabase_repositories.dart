@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/errors/app_exception.dart';
+import '../../core/services/location_change_batcher.dart';
 import '../../domain/entities/admin_profile.dart';
 import '../../domain/entities/transport_entities.dart';
 import '../../domain/repositories/repositories.dart';
@@ -14,6 +15,14 @@ routes(name),
 drivers(id,profiles(full_name)),
 vehicle_locations(latitude,longitude,speed,heading,updated_at)
 ''';
+
+String? vehicleIdFromLocationChange(
+  Map<String, dynamic> newRecord,
+  Map<String, dynamic> oldRecord,
+) {
+  return newRecord['vehicle_id']?.toString() ??
+      oldRecord['vehicle_id']?.toString();
+}
 
 class SupabaseAdminRepository
     implements
@@ -55,7 +64,7 @@ class SupabaseAdminRepository
 
   @override
   Future<AdminProfile?> currentAdmin() async {
-    final user = _client.auth.currentUser;
+    final user = _client.auth.currentSession?.user;
     if (user == null) return null;
     try {
       final data = await _client
@@ -127,6 +136,12 @@ class SupabaseAdminRepository
   }
 
   @override
+  Future<String?> verifiedTotpFactorId() async {
+    final factors = await _client.auth.mfa.listFactors();
+    return factors.totp.isEmpty ? null : factors.totp.first.id;
+  }
+
+  @override
   Future<void> unenrollMfa(String factorId) async {
     await _client.auth.mfa.unenroll(factorId);
   }
@@ -183,7 +198,7 @@ class SupabaseAdminRepository
     String sortBy = 'code',
     bool ascending = true,
   }) async {
-    dynamic query = _client.from('vehicles').select(_vehicleSelect).count();
+    dynamic query = _client.from('vehicles').select(_vehicleSelect);
     final term = _safeTerm(search);
     if (term.isNotEmpty) {
       query = query.or('code.ilike.%$term%,plate.ilike.%$term%');
@@ -196,7 +211,8 @@ class SupabaseAdminRepository
         : 'code';
     final response = await query
         .order(safeSort, ascending: ascending)
-        .range(page * pageSize, (page + 1) * pageSize - 1);
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+        .count();
     final data = (response.data as List)
         .whereType<Map>()
         .map((row) => VehicleMapper.fromJson(Map<String, dynamic>.from(row)))
@@ -224,19 +240,30 @@ class SupabaseAdminRepository
   }
 
   @override
-  Stream<void> watchLocations() {
-    late final StreamController<void> controller;
+  Stream<Set<String>> watchLocations() {
+    late final StreamController<Set<String>> controller;
     late final RealtimeChannel channel;
-    controller = StreamController<void>(
+    late final LocationChangeBatcher batcher;
+    controller = StreamController<Set<String>>(
       onListen: () {
+        batcher = LocationChangeBatcher(
+          window: const Duration(milliseconds: 750),
+          onBatch: (ids) {
+            if (!controller.isClosed) controller.add(ids);
+          },
+        );
         channel = _client
             .channel('admin-vehicle-locations')
             .onPostgresChanges(
               event: PostgresChangeEvent.all,
               schema: 'public',
               table: 'vehicle_locations',
-              callback: (_) {
-                if (!controller.isClosed) controller.add(null);
+              callback: (payload) {
+                final vehicleId = vehicleIdFromLocationChange(
+                  payload.newRecord,
+                  payload.oldRecord,
+                );
+                if (vehicleId != null) batcher.add(vehicleId);
               },
             )
             .subscribe((status, error) {
@@ -251,6 +278,7 @@ class SupabaseAdminRepository
             });
       },
       onCancel: () async {
+        batcher.dispose();
         await _client.removeChannel(channel);
         await controller.close();
       },
@@ -267,41 +295,19 @@ class SupabaseAdminRepository
     String? routeId,
     String? driverId,
   }) async {
-    final values = <String, Object?>{
-      'code': code.trim().toUpperCase(),
-      'plate': plate.trim().toUpperCase(),
-      'status': status,
-      'route_id': routeId,
-      'driver_id': driverId,
-    };
-    if (driverId != null) {
-      dynamic clear = _client
-          .from('vehicles')
-          .update({'driver_id': null})
-          .eq('driver_id', driverId);
-      if (id != null) clear = clear.neq('id', id);
-      await clear;
-    }
-    if (id == null) {
-      await _client.from('vehicles').insert(values);
-    } else {
-      await _client.from('vehicles').update(values).eq('id', id);
-    }
+    await _atomicRpc('save_vehicle_with_assignment', {
+      'p_vehicle_id': id,
+      'p_code': code.trim().toUpperCase(),
+      'p_plate': plate.trim().toUpperCase(),
+      'p_status': status,
+      'p_route_id': routeId,
+      'p_driver_id': driverId,
+    });
   }
 
   @override
   Future<void> updateVehicleStatus(String id, String status) =>
       _client.from('vehicles').update({'status': status}).eq('id', id);
-
-  @override
-  Future<void> assignVehicle({
-    required String vehicleId,
-    String? routeId,
-    String? driverId,
-  }) => _client
-      .from('vehicles')
-      .update({'route_id': routeId, 'driver_id': driverId})
-      .eq('id', vehicleId);
 
   @override
   Future<List<TransportRoute>> getRoutes({String search = ''}) async {
@@ -396,13 +402,17 @@ class SupabaseAdminRepository
 
   @override
   Future<void> reorderStops(List<RouteStop> stops) async {
-    await Future.wait([
-      for (var index = 0; index < stops.length; index++)
-        _client
-            .from('stops')
-            .update({'stop_order': index + 1})
-            .eq('id', stops[index].id),
-    ]);
+    if (stops.isEmpty) return;
+    final routeId = stops.first.routeId;
+    if (stops.any((stop) => stop.routeId != routeId)) {
+      throw const AppException(
+        'Todas las paradas deben pertenecer a la misma ruta.',
+      );
+    }
+    await _atomicRpc('reorder_route_stops', {
+      'p_route_id': routeId,
+      'p_stop_ids': [for (final stop in stops) stop.id],
+    });
   }
 
   @override
@@ -410,7 +420,12 @@ class SupabaseAdminRepository
       _client.from('stops').delete().eq('id', id);
 
   @override
-  Future<List<Driver>> getDrivers({String search = '', String? status}) async {
+  Future<PagedResult<Driver>> getDrivers({
+    required int page,
+    required int pageSize,
+    String search = '',
+    String? status,
+  }) async {
     dynamic query = _client.from('drivers').select('''
       id,profile_id,license_number,status,created_at,
       profiles!inner(full_name,email),
@@ -421,11 +436,20 @@ class SupabaseAdminRepository
       query = query.ilike('profiles.full_name', '%$term%');
     }
     if (status != null && status.isNotEmpty) query = query.eq('status', status);
-    final data = await query.order('created_at', ascending: false).limit(200);
-    return (data as List)
+    final response = await query
+        .order('created_at', ascending: false)
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+        .count();
+    final items = (response.data as List)
         .whereType<Map>()
         .map((row) => DriverMapper.fromJson(Map<String, dynamic>.from(row)))
         .toList();
+    return PagedResult(
+      items: items,
+      total: response.count,
+      page: page,
+      pageSize: pageSize,
+    );
   }
 
   @override
@@ -440,20 +464,14 @@ class SupabaseAdminRepository
 
   @override
   Future<void> assignDriverVehicle(String driverId, String? vehicleId) async {
-    await _client
-        .from('vehicles')
-        .update({'driver_id': null})
-        .eq('driver_id', driverId);
-    if (vehicleId != null) {
-      await _client
-          .from('vehicles')
-          .update({'driver_id': driverId})
-          .eq('id', vehicleId);
-    }
+    await _atomicRpc('assign_driver_to_vehicle', {
+      'p_driver_id': driverId,
+      'p_vehicle_id': vehicleId,
+    });
   }
 
   @override
-  Future<void> inviteDriver({
+  Future<String> inviteDriver({
     required String email,
     required String fullName,
     String? licenseNumber,
@@ -472,10 +490,18 @@ class SupabaseAdminRepository
           : null;
       throw AppException(message ?? 'No fue posible invitar al conductor.');
     }
+    return response.data is Map
+        ? (response.data as Map)['message']?.toString() ??
+              'Invitación enviada al conductor.'
+        : 'Invitación enviada al conductor.';
   }
 
   @override
-  Future<List<Incident>> getIncidents({String? status}) async {
+  Future<PagedResult<Incident>> getIncidents({
+    required int page,
+    required int pageSize,
+    String? status,
+  }) async {
     dynamic query = _client.from('incidents').select('''
         id,vehicle_id,driver_id,type,description,status,created_at,
         updated_at,resolved_at,resolution_notes,
@@ -483,12 +509,16 @@ class SupabaseAdminRepository
       ''');
     if (status != null && status.isNotEmpty) query = query.eq('status', status);
     List<dynamic> data;
+    var total = 0;
     try {
-      data = await query.order('created_at', ascending: false).limit(200);
+      final response = await query
+          .order('created_at', ascending: false)
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+          .count();
+      data = response.data as List;
+      total = response.count;
     } on PostgrestException catch (error) {
-      if (!error.message.contains('updated_at') &&
-          !error.message.contains('resolution_notes') &&
-          !error.message.contains('resolved_at')) {
+      if (!_incidentHistoryUnavailable(error)) {
         rethrow;
       }
       dynamic fallback = _client.from('incidents').select('''
@@ -498,12 +528,23 @@ class SupabaseAdminRepository
       if (status != null && status.isNotEmpty) {
         fallback = fallback.eq('status', status);
       }
-      data = await fallback.order('created_at', ascending: false).limit(200);
+      final response = await fallback
+          .order('created_at', ascending: false)
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+          .count();
+      data = response.data as List;
+      total = response.count;
     }
-    return data
+    final items = data
         .whereType<Map>()
         .map((row) => IncidentMapper.fromJson(Map<String, dynamic>.from(row)))
         .toList();
+    return PagedResult(
+      items: items,
+      total: total,
+      page: page,
+      pageSize: pageSize,
+    );
   }
 
   @override
@@ -514,18 +555,12 @@ class SupabaseAdminRepository
   }) async {
     final values = <String, Object?>{
       'status': status,
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
       'resolution_notes': resolutionNotes?.trim(),
-      'resolved_at': status == 'resolved'
-          ? DateTime.now().toUtc().toIso8601String()
-          : null,
     };
     try {
       await _client.from('incidents').update(values).eq('id', id);
     } on PostgrestException catch (error) {
-      if (!error.message.contains('updated_at') &&
-          !error.message.contains('resolution_notes') &&
-          !error.message.contains('resolved_at')) {
+      if (!_incidentHistoryUnavailable(error)) {
         rethrow;
       }
       await _client.from('incidents').update({'status': status}).eq('id', id);
@@ -533,28 +568,77 @@ class SupabaseAdminRepository
   }
 
   @override
-  Future<List<Trip>> getTrips({String? status}) async {
+  Future<PagedResult<Trip>> getTrips({
+    required int page,
+    required int pageSize,
+    String? status,
+  }) async {
     dynamic query = _client.from('trips').select('''
       id,status,started_at,ended_at,created_at,
       vehicles(code),routes(name),drivers(profiles(full_name))
     ''');
     if (status != null && status.isNotEmpty) query = query.eq('status', status);
-    final data = await query.order('created_at', ascending: false).limit(200);
-    return (data as List)
+    final response = await query
+        .order('created_at', ascending: false)
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+        .count();
+    final items = (response.data as List)
         .whereType<Map>()
         .map((row) => TripMapper.fromJson(Map<String, dynamic>.from(row)))
         .toList();
+    return PagedResult(
+      items: items,
+      total: response.count,
+      page: page,
+      pageSize: pageSize,
+    );
   }
 
   @override
-  Future<void> updateTripStatus(String id, String status) => _client
-      .from('trips')
-      .update({
-        'status': status,
-        if (status == 'finished')
-          'ended_at': DateTime.now().toUtc().toIso8601String(),
-      })
-      .eq('id', id);
+  Future<void> updateTripStatus(String id, String status) =>
+      _client.from('trips').update({'status': status}).eq('id', id);
+
+  bool _incidentHistoryUnavailable(PostgrestException error) {
+    if (error.code == '42703' || error.code == 'PGRST204') return true;
+    // Compatibilidad transitoria hasta aplicar 003_incident_history.sql.
+    // Eliminar esta rama junto con el fallback tras completar el rollout.
+    return error.message.contains('updated_at') ||
+        error.message.contains('resolution_notes') ||
+        error.message.contains('resolved_at');
+  }
+
+  Future<void> _atomicRpc(String function, Map<String, Object?> params) async {
+    try {
+      await _client.rpc(function, params: params);
+    } on PostgrestException catch (error) {
+      if (error.code == '42883' || error.code == 'PGRST202') {
+        throw AppException(
+          'La operación atómica aún no está instalada en Supabase. Revisa la propuesta SQL 006.',
+          code: error.code,
+          cause: error,
+        );
+      }
+      if (error.code == '23505') {
+        throw AppException(
+          'La asignación entra en conflicto con otra operación reciente.',
+          code: error.code,
+          cause: error,
+        );
+      }
+      if (error.code == '42501') {
+        throw AppException(
+          'La operación requiere permisos administrativos y MFA vigente.',
+          code: error.code,
+          cause: error,
+        );
+      }
+      throw AppException(
+        'No fue posible completar la operación atómica.',
+        code: error.code,
+        cause: error,
+      );
+    }
+  }
 
   @override
   Future<List<GlobalSearchResult>> search(String query) async {

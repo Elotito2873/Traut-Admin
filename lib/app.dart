@@ -18,19 +18,22 @@ import 'presentation/pages/routes/routes_page.dart';
 import 'presentation/pages/settings/settings_page.dart';
 import 'presentation/pages/trips/trips_page.dart';
 import 'presentation/widgets/admin_shell.dart';
+import 'presentation/widgets/inactivity_guard.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final authenticated = ref.watch(
+  final administrativeShell = ref.watch(
     authControllerProvider.select(
-      (state) => state.stage == AuthStage.authenticated,
+      (state) =>
+          state.stage == AuthStage.authenticated ||
+          state.stage == AuthStage.locked,
     ),
   );
   return GoRouter(
-    initialLocation: authenticated ? '/' : '/access',
+    initialLocation: administrativeShell ? '/' : '/access',
     redirect: (context, state) {
       final access = state.matchedLocation == '/access';
-      if (!authenticated && !access) return '/access';
-      if (authenticated && access) return '/';
+      if (!administrativeShell && !access) return '/access';
+      if (administrativeShell && access) return '/';
       return null;
     },
     routes: [
@@ -39,7 +42,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const _AccessGate(),
       ),
       ShellRoute(
-        builder: (context, state, child) => AdminShell(child: child),
+        builder: (context, state, child) =>
+            InactivityGuard(child: AdminShell(child: child)),
         routes: [
           GoRoute(path: '/', builder: (_, _) => const DashboardPage()),
           GoRoute(
@@ -111,6 +115,7 @@ class _AccessGate extends ConsumerWidget {
       AuthStage.mfaEnrollment => const MfaPage(enrollment: true),
       AuthStage.unauthorized => const UnauthorizedPage(),
       AuthStage.authenticated => const SizedBox.shrink(),
+      AuthStage.locked => const SizedBox.shrink(),
     };
   }
 }

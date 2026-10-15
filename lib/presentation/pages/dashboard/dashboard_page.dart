@@ -14,7 +14,6 @@ class DashboardPage extends ConsumerWidget {
     ref.listen(locationChangesProvider, (_, next) {
       next.whenData((_) {
         ref.invalidate(monitoredVehiclesProvider);
-        ref.invalidate(dashboardProvider);
       });
     });
     final metrics = ref.watch(dashboardProvider);

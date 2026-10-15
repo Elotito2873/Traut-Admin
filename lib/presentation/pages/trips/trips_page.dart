@@ -15,6 +15,11 @@ class TripsPage extends ConsumerStatefulWidget {
 
 class _TripsPageState extends ConsumerState<TripsPage> {
   String? _status;
+  int _page = 0;
+  int _pageSize = 25;
+
+  TripQuery get _query =>
+      TripQuery(page: _page, pageSize: _pageSize, status: _status);
 
   void _refresh() {
     ref.invalidate(tripsProvider);
@@ -23,7 +28,7 @@ class _TripsPageState extends ConsumerState<TripsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final trips = ref.watch(tripsProvider(_status));
+    final trips = ref.watch(tripsProvider(_query));
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -45,7 +50,10 @@ class _TripsPageState extends ConsumerState<TripsPage> {
                 DropdownMenuItem(value: 'finished', child: Text('Finalizados')),
                 DropdownMenuItem(value: 'cancelled', child: Text('Cancelados')),
               ],
-              onChanged: (value) => setState(() => _status = value),
+              onChanged: (value) => setState(() {
+                _status = value;
+                _page = 0;
+              }),
             ),
           ),
           const SizedBox(height: 16),
@@ -56,64 +64,89 @@ class _TripsPageState extends ConsumerState<TripsPage> {
                 loading: () => const LoadingPanel(),
                 error: (error, _) =>
                     ErrorPanel(error: error, onRetry: _refresh),
-                data: (items) {
+                data: (result) {
+                  final items = result.items;
                   if (items.isEmpty) {
                     return const EmptyPanel(
                       message: 'No hay viajes para este filtro.',
                       icon: Icons.route_outlined,
                     );
                   }
-                  return SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SingleChildScrollView(
-                      child: DataTable(
-                        columns: const [
-                          DataColumn(label: Text('Unidad')),
-                          DataColumn(label: Text('Ruta')),
-                          DataColumn(label: Text('Conductor')),
-                          DataColumn(label: Text('Inicio')),
-                          DataColumn(label: Text('Fin')),
-                          DataColumn(label: Text('Estado')),
-                          DataColumn(label: Text('Acciones')),
-                        ],
-                        rows: [
-                          for (final trip in items)
-                            DataRow(
-                              cells: [
-                                DataCell(
-                                  Text(trip.vehicleCode ?? 'Sin unidad'),
-                                ),
-                                DataCell(Text(trip.routeName ?? 'Sin ruta')),
-                                DataCell(
-                                  Text(trip.driverName ?? 'Sin conductor'),
-                                ),
-                                DataCell(Text(_date(trip.startedAt))),
-                                DataCell(Text(_date(trip.endedAt))),
-                                DataCell(StatusBadge(status: trip.status)),
-                                DataCell(
-                                  trip.status == 'active'
-                                      ? PopupMenuButton<String>(
-                                          tooltip: 'Acciones del viaje',
-                                          onSelected: (status) =>
-                                              _changeStatus(trip, status),
-                                          itemBuilder: (_) => const [
-                                            PopupMenuItem(
-                                              value: 'finished',
-                                              child: Text('Finalizar viaje'),
-                                            ),
-                                            PopupMenuItem(
-                                              value: 'cancelled',
-                                              child: Text('Cancelar viaje'),
-                                            ),
-                                          ],
-                                        )
-                                      : const Text('Histórico'),
-                                ),
+                  return Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SingleChildScrollView(
+                            child: DataTable(
+                              columns: const [
+                                DataColumn(label: Text('Unidad')),
+                                DataColumn(label: Text('Ruta')),
+                                DataColumn(label: Text('Conductor')),
+                                DataColumn(label: Text('Inicio')),
+                                DataColumn(label: Text('Fin')),
+                                DataColumn(label: Text('Estado')),
+                                DataColumn(label: Text('Acciones')),
+                              ],
+                              rows: [
+                                for (final trip in items)
+                                  DataRow(
+                                    cells: [
+                                      DataCell(
+                                        Text(trip.vehicleCode ?? 'Sin unidad'),
+                                      ),
+                                      DataCell(
+                                        Text(trip.routeName ?? 'Sin ruta'),
+                                      ),
+                                      DataCell(
+                                        Text(
+                                          trip.driverName ?? 'Sin conductor',
+                                        ),
+                                      ),
+                                      DataCell(Text(_date(trip.startedAt))),
+                                      DataCell(Text(_date(trip.endedAt))),
+                                      DataCell(
+                                        StatusBadge(status: trip.status),
+                                      ),
+                                      DataCell(
+                                        trip.status == 'active'
+                                            ? PopupMenuButton<String>(
+                                                tooltip: 'Acciones del viaje',
+                                                onSelected: (status) =>
+                                                    _changeStatus(trip, status),
+                                                itemBuilder: (_) => const [
+                                                  PopupMenuItem(
+                                                    value: 'finished',
+                                                    child: Text(
+                                                      'Finalizar viaje',
+                                                    ),
+                                                  ),
+                                                  PopupMenuItem(
+                                                    value: 'cancelled',
+                                                    child: Text(
+                                                      'Cancelar viaje',
+                                                    ),
+                                                  ),
+                                                ],
+                                              )
+                                            : const Text('Histórico'),
+                                      ),
+                                    ],
+                                  ),
                               ],
                             ),
-                        ],
+                          ),
+                        ),
                       ),
-                    ),
+                      PagedTableFooter<Trip>(
+                        result: result,
+                        onPageSize: (value) => setState(() {
+                          _pageSize = value;
+                          _page = 0;
+                        }),
+                        onPage: (value) => setState(() => _page = value),
+                      ),
+                    ],
                   );
                 },
               ),

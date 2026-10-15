@@ -20,6 +20,8 @@ class _DriversPageState extends ConsumerState<DriversPage> {
   Timer? _debounce;
   String _search = '';
   String? _status;
+  int _page = 0;
+  int _pageSize = 25;
 
   @override
   void dispose() {
@@ -27,7 +29,12 @@ class _DriversPageState extends ConsumerState<DriversPage> {
     super.dispose();
   }
 
-  DriverQuery get _query => DriverQuery(search: _search, status: _status);
+  DriverQuery get _query => DriverQuery(
+    page: _page,
+    pageSize: _pageSize,
+    search: _search,
+    status: _status,
+  );
 
   void _refresh() {
     ref.invalidate(driversProvider);
@@ -70,7 +77,12 @@ class _DriversPageState extends ConsumerState<DriversPage> {
                   onChanged: (value) {
                     _debounce?.cancel();
                     _debounce = Timer(const Duration(milliseconds: 400), () {
-                      if (mounted) setState(() => _search = value);
+                      if (mounted) {
+                        setState(() {
+                          _search = value;
+                          _page = 0;
+                        });
+                      }
                     });
                   },
                 ),
@@ -92,7 +104,10 @@ class _DriversPageState extends ConsumerState<DriversPage> {
                       child: Text('Suspendido'),
                     ),
                   ],
-                  onChanged: (value) => setState(() => _status = value),
+                  onChanged: (value) => setState(() {
+                    _status = value;
+                    _page = 0;
+                  }),
                 ),
               ),
             ],
@@ -105,102 +120,131 @@ class _DriversPageState extends ConsumerState<DriversPage> {
                 loading: () => const LoadingPanel(),
                 error: (error, _) =>
                     ErrorPanel(error: error, onRetry: _refresh),
-                data: (items) {
+                data: (result) {
+                  final items = result.items;
                   if (items.isEmpty) {
                     return const EmptyPanel(
                       message: 'No hay conductores para mostrar.',
                       icon: Icons.badge_outlined,
                     );
                   }
-                  return SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SingleChildScrollView(
-                      child: DataTable(
-                        columns: const [
-                          DataColumn(label: Text('Nombre')),
-                          DataColumn(label: Text('Licencia')),
-                          DataColumn(label: Text('Estado')),
-                          DataColumn(label: Text('Unidad')),
-                          DataColumn(label: Text('Ruta')),
-                          DataColumn(label: Text('Última actividad')),
-                          DataColumn(label: Text('Acciones')),
-                        ],
-                        rows: [
-                          for (final driver in items)
-                            DataRow(
-                              cells: [
-                                DataCell(
-                                  Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        driver.fullName,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
+                  return Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SingleChildScrollView(
+                            child: DataTable(
+                              columns: const [
+                                DataColumn(label: Text('Nombre')),
+                                DataColumn(label: Text('Licencia')),
+                                DataColumn(label: Text('Estado')),
+                                DataColumn(label: Text('Unidad')),
+                                DataColumn(label: Text('Ruta')),
+                                DataColumn(label: Text('Última actividad')),
+                                DataColumn(label: Text('Acciones')),
+                              ],
+                              rows: [
+                                for (final driver in items)
+                                  DataRow(
+                                    cells: [
+                                      DataCell(
+                                        Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              driver.fullName,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            Text(driver.email),
+                                          ],
                                         ),
                                       ),
-                                      Text(driver.email),
+                                      DataCell(
+                                        Text(
+                                          driver.licenseNumber ??
+                                              'Sin registrar',
+                                        ),
+                                      ),
+                                      DataCell(
+                                        StatusBadge(status: driver.status),
+                                      ),
+                                      DataCell(
+                                        Text(
+                                          driver.vehicleCode ?? 'Sin asignar',
+                                        ),
+                                      ),
+                                      DataCell(
+                                        Text(driver.routeName ?? 'Sin asignar'),
+                                      ),
+                                      DataCell(
+                                        Text(
+                                          driver.lastActivity == null
+                                              ? 'Sin actividad registrada'
+                                              : DateFormat(
+                                                  'dd/MM/yyyy HH:mm',
+                                                ).format(
+                                                  driver.lastActivity!
+                                                      .toLocal(),
+                                                ),
+                                        ),
+                                      ),
+                                      DataCell(
+                                        PopupMenuButton<String>(
+                                          tooltip:
+                                              'Acciones de ${driver.fullName}',
+                                          onSelected: (action) =>
+                                              _handleAction(driver, action),
+                                          itemBuilder: (context) => [
+                                            const PopupMenuItem(
+                                              value: 'edit',
+                                              child: Text('Editar'),
+                                            ),
+                                            const PopupMenuItem(
+                                              value: 'assign',
+                                              child: Text('Asignar unidad'),
+                                            ),
+                                            if (driver.vehicleId != null)
+                                              const PopupMenuItem(
+                                                value: 'unassign',
+                                                child: Text(
+                                                  'Quitar asignación',
+                                                ),
+                                              ),
+                                            if (driver.status != 'suspended')
+                                              const PopupMenuItem(
+                                                value: 'suspended',
+                                                child: Text('Suspender'),
+                                              ),
+                                            if (driver.status != 'active')
+                                              const PopupMenuItem(
+                                                value: 'active',
+                                                child: Text('Activar'),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
                                     ],
                                   ),
-                                ),
-                                DataCell(
-                                  Text(driver.licenseNumber ?? 'Sin registrar'),
-                                ),
-                                DataCell(StatusBadge(status: driver.status)),
-                                DataCell(
-                                  Text(driver.vehicleCode ?? 'Sin asignar'),
-                                ),
-                                DataCell(
-                                  Text(driver.routeName ?? 'Sin asignar'),
-                                ),
-                                DataCell(
-                                  Text(
-                                    driver.lastActivity == null
-                                        ? 'Sin actividad registrada'
-                                        : DateFormat('dd/MM/yyyy HH:mm').format(
-                                            driver.lastActivity!.toLocal(),
-                                          ),
-                                  ),
-                                ),
-                                DataCell(
-                                  PopupMenuButton<String>(
-                                    tooltip: 'Acciones de ${driver.fullName}',
-                                    onSelected: (action) =>
-                                        _handleAction(driver, action),
-                                    itemBuilder: (context) => [
-                                      const PopupMenuItem(
-                                        value: 'edit',
-                                        child: Text('Editar'),
-                                      ),
-                                      const PopupMenuItem(
-                                        value: 'assign',
-                                        child: Text('Asignar unidad'),
-                                      ),
-                                      if (driver.vehicleId != null)
-                                        const PopupMenuItem(
-                                          value: 'unassign',
-                                          child: Text('Quitar asignación'),
-                                        ),
-                                      if (driver.status != 'suspended')
-                                        const PopupMenuItem(
-                                          value: 'suspended',
-                                          child: Text('Suspender'),
-                                        ),
-                                      if (driver.status != 'active')
-                                        const PopupMenuItem(
-                                          value: 'active',
-                                          child: Text('Activar'),
-                                        ),
-                                    ],
-                                  ),
-                                ),
                               ],
                             ),
-                        ],
+                          ),
+                        ),
                       ),
-                    ),
+                      PagedTableFooter<Driver>(
+                        result: result,
+                        onPageSize: (value) => setState(() {
+                          _pageSize = value;
+                          _page = 0;
+                        }),
+                        onPage: (value) => setState(() => _page = value),
+                      ),
+                    ],
                   );
                 },
               ),
@@ -277,13 +321,13 @@ class _DriversPageState extends ConsumerState<DriversPage> {
   }
 
   Future<void> _invite() async {
-    final invited = await showDialog<bool>(
+    final message = await showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (context) => const InviteDriverDialog(),
     );
-    if (invited == true && mounted) {
-      showOperationSuccess(context, 'Invitación enviada al conductor.');
+    if (message != null && mounted) {
+      showOperationSuccess(context, message);
       _refresh();
     }
   }
@@ -520,7 +564,7 @@ class _InviteDriverDialogState extends ConsumerState<InviteDriverDialog> {
     ),
     actions: [
       TextButton(
-        onPressed: _saving ? null : () => Navigator.pop(context, false),
+        onPressed: _saving ? null : () => Navigator.pop(context),
         child: const Text('Cancelar'),
       ),
       FilledButton(
@@ -534,14 +578,14 @@ class _InviteDriverDialogState extends ConsumerState<InviteDriverDialog> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      await ref
+      final message = await ref
           .read(driverRepositoryProvider)
           .inviteDriver(
             email: _email.text,
             fullName: _name.text,
             licenseNumber: _license.text.isEmpty ? null : _license.text,
           );
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) Navigator.pop(context, message);
     } catch (error) {
       if (mounted) {
         setState(() => _saving = false);

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/errors/app_exception.dart';
+import '../../domain/entities/transport_entities.dart';
 
 class PageIntro extends StatelessWidget {
   const PageIntro({
@@ -197,4 +198,57 @@ void showOperationError(BuildContext context, Object error) {
 
 void showOperationSuccess(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+}
+
+class PagedTableFooter<T> extends StatelessWidget {
+  const PagedTableFooter({
+    super.key,
+    required this.result,
+    required this.onPageSize,
+    required this.onPage,
+  });
+
+  final PagedResult<T> result;
+  final ValueChanged<int> onPageSize;
+  final ValueChanged<int> onPage;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        const Text('Filas:'),
+        const SizedBox(width: 8),
+        DropdownButton<int>(
+          value: result.pageSize,
+          items: const [
+            DropdownMenuItem(value: 10, child: Text('10')),
+            DropdownMenuItem(value: 25, child: Text('25')),
+            DropdownMenuItem(value: 50, child: Text('50')),
+          ],
+          onChanged: (value) {
+            if (value != null) onPageSize(value);
+          },
+        ),
+        const SizedBox(width: 18),
+        Text(
+          result.total == 0
+              ? '0 registros'
+              : '${result.page * result.pageSize + 1}–${result.page * result.pageSize + result.items.length} de ${result.total}',
+        ),
+        const SizedBox(width: 12),
+        IconButton(
+          tooltip: 'Página anterior',
+          onPressed: result.page > 0 ? () => onPage(result.page - 1) : null,
+          icon: const Icon(Icons.chevron_left),
+        ),
+        IconButton(
+          tooltip: 'Página siguiente',
+          onPressed: result.hasNext ? () => onPage(result.page + 1) : null,
+          icon: const Icon(Icons.chevron_right),
+        ),
+      ],
+    ),
+  );
 }
