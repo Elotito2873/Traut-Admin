@@ -8,6 +8,7 @@ abstract interface class AuthRepository {
   Future<MfaGate> mfaRequirement({required bool forceEnrollment});
   Future<MfaEnrollment> enrollMfa();
   Future<void> verifyMfa({required String factorId, required String code});
+  Future<String?> verifiedTotpFactorId();
   Future<void> unenrollMfa(String factorId);
 }
 
@@ -46,7 +47,7 @@ abstract interface class VehicleRepository {
     bool ascending = true,
   });
   Future<List<Vehicle>> getMonitoredVehicles();
-  Stream<void> watchLocations();
+  Stream<Set<String>> watchLocations();
   Future<void> saveVehicle({
     String? id,
     required String code,
@@ -56,11 +57,6 @@ abstract interface class VehicleRepository {
     String? driverId,
   });
   Future<void> updateVehicleStatus(String id, String status);
-  Future<void> assignVehicle({
-    required String vehicleId,
-    String? routeId,
-    String? driverId,
-  });
 }
 
 abstract interface class RouteRepository {
@@ -89,14 +85,19 @@ abstract interface class RouteRepository {
 }
 
 abstract interface class DriverRepository {
-  Future<List<Driver>> getDrivers({String search = '', String? status});
+  Future<PagedResult<Driver>> getDrivers({
+    required int page,
+    required int pageSize,
+    String search = '',
+    String? status,
+  });
   Future<void> updateDriver({
     required String id,
     String? licenseNumber,
     required String status,
   });
   Future<void> assignDriverVehicle(String driverId, String? vehicleId);
-  Future<void> inviteDriver({
+  Future<String> inviteDriver({
     required String email,
     required String fullName,
     String? licenseNumber,
@@ -104,7 +105,11 @@ abstract interface class DriverRepository {
 }
 
 abstract interface class IncidentRepository {
-  Future<List<Incident>> getIncidents({String? status});
+  Future<PagedResult<Incident>> getIncidents({
+    required int page,
+    required int pageSize,
+    String? status,
+  });
   Future<void> updateIncident({
     required String id,
     required String status,
@@ -113,7 +118,11 @@ abstract interface class IncidentRepository {
 }
 
 abstract interface class TripRepository {
-  Future<List<Trip>> getTrips({String? status});
+  Future<PagedResult<Trip>> getTrips({
+    required int page,
+    required int pageSize,
+    String? status,
+  });
   Future<void> updateTripStatus(String id, String status);
 }
 

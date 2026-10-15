@@ -38,10 +38,19 @@ para asignar `admin`.
 TOTP usa exclusivamente `auth.mfa.enroll`, `challengeAndVerify` y assurance level
 de Supabase. La app no persiste secretos TOTP. Para exigirlo:
 
-1. verifica en **Authentication → Multi-Factor** que TOTP esté disponible;
-2. ejecuta temporalmente con `REQUIRE_ADMIN_MFA=true` y enrola todos los admins;
-3. aplica la propuesta opcional `004_require_admin_aal2.sql`;
-4. configura CI/release para compilar con `REQUIRE_ADMIN_MFA=true`.
+1. crea y valida manualmente el primer administrador;
+2. inicia sesión como ese administrador;
+3. verifica en **Authentication → Multi-Factor** que TOTP esté disponible y
+   enróllalo con `REQUIRE_ADMIN_MFA=true`;
+4. completa un challenge y confirma que el JWT reporta `aal = aal2`;
+5. recién entonces aplica `004_require_admin_aal2.sql`;
+6. compila releases con `REQUIRE_ADMIN_MFA=true`.
+
+La policy restrictiva exige AAL2 solamente cuando `public.is_admin()` es
+verdadero, por lo que no agrega el requisito a pasajeros ni conductores. Los RPC
+sensibles también validan admin y AAL2. Después de cada challenge Flutter vuelve
+a leer sesión, perfil, rol y assurance level; un rol revocado durante el
+challenge no obtiene acceso.
 
 La Edge Function `invite-driver` exige AAL2 aunque el cliente se haya compilado
 sin enrolamiento forzoso, porque crear Auth users es una acción sensible.
@@ -56,11 +65,16 @@ en Flutter/GitHub Actions.
 Despliega manualmente después de aplicar `audit_logs`:
 
 ```bash
+supabase secrets set \
+  DRIVER_INVITE_REDIRECT_URL=https://conductor.example.com/auth/accept-invite
 supabase functions deploy invite-driver
 ```
 
 Configura la URL de redirección de invitaciones en **Authentication → URL
-Configuration** para el flujo real del conductor, no para Traut Admin.
+Configuration** para el flujo real de Traut Conductor, no para Traut Admin ni
+Traut Usuario. Si falta, la función falla sin mostrar secretos. Correos existentes
+con otro rol no se convierten implícitamente; duplicados devuelven conflicto.
+`drivers.id` lo genera PostgreSQL.
 
 ## Sesiones y roles
 
@@ -68,6 +82,28 @@ El rol se lee desde `profiles`, nunca desde `user_metadata`. El cliente no tiene
 política para modificar `profiles.role`. Si se revoca un administrador, revoca
 también sus sesiones o usa JWT de corta duración; cambiar una fila no invalida un
 access token ya emitido.
+
+Flutter no recibe `UPDATE` sobre `profiles`; no existe formulario ni repositorio
+que escriba `role`. Solo `invite-driver`, en contexto privilegiado de servidor y
+después de autenticar admin+AAL2, puede crear el perfil `driver`.
+
+## Auditoría e inactividad
+
+Los triggers nombran operaciones de flota, rutas, paradas, tarifas, conductores,
+incidencias y viajes. La Edge Function registra invitaciones. La metadata se
+limita a origen y transiciones de estado; nunca guarda JWT, passwords, tokens,
+secret keys ni filas completas.
+
+Tras el timeout configurable (20 minutos por defecto), la interfaz queda bajo
+una barrera. Con TOTP conserva el árbol de formularios y exige otro challenge;
+sin TOTP cierra sesión para requerir reautenticación. No se guarda la contraseña.
+
+La detección manual de unidades sin señal entra por el RPC público protegido con
+admin+AAL2. Un scheduler de PostgreSQL carece de ese JWT: debe llamar al worker
+homónimo del schema `private` bajo un rol de base de datos confiable. Ese worker
+no es ejecutable por `public`, `anon` ni `authenticated`, solo modifica unidades
+`active`, usa `now()` y registra una auditoría mínima por unidad. No se expone
+`service_role` en Flutter y la propuesta no crea jobs automáticamente.
 
 ## Tiles OpenStreetMap
 

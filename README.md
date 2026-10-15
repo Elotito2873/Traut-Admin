@@ -20,7 +20,7 @@ de pasajeros y conductores, sin incluir credenciales privilegiadas en el cliente
 
 ## Requisitos
 
-- Flutter estable 3.44 o posterior y Dart 3.12 o posterior;
+- Flutter 3.44.4 y Dart 3.12.2 para reproducir CI y los binarios de esta release;
 - toolchain de la plataforma que se desea compilar;
 - un proyecto Supabase existente con el esquema descrito en
   [docs/DATABASE.md](docs/DATABASE.md);
@@ -40,6 +40,9 @@ contraseña de Postgres ni Client Secret.
 
 `REQUIRE_ADMIN_MFA` controla el gate de enrolamiento del cliente. Para imponer
 MFA también en la base, revisa la propuesta `004_require_admin_aal2.sql`.
+`ADMIN_INACTIVITY_TIMEOUT_MINUTES` controla el lock local (20 minutos por
+defecto). Con TOTP, conserva formularios y exige un nuevo challenge; sin TOTP
+cierra la sesión y exige reautenticación.
 
 ## Ejecutar
 
@@ -86,14 +89,16 @@ repositorio. Consulta [docs/DATABASE.md](docs/DATABASE.md) y
 [docs/SECURITY.md](docs/SECURITY.md).
 
 La invitación de conductores requiere desplegar manualmente `invite-driver` luego
-de aplicar RLS y auditoría:
+de aplicar RLS, auditoría y el default UUID de `drivers`:
 
 ```bash
+supabase secrets set \
+  DRIVER_INVITE_REDIRECT_URL=https://conductor.example.com/auth/accept-invite
 supabase functions deploy invite-driver
 ```
 
-Supabase administra las secret keys del entorno de Functions. No las copies a
-este repositorio.
+La redirección corresponde a Traut Conductor. Supabase administra las secret
+keys del entorno de Functions. No las copies a este repositorio.
 
 ## Arquitectura
 
@@ -108,6 +113,8 @@ incidencias y auditoría permanecen en Supabase. Más detalles en
 ## Releases
 
 Los tags SemVer `v*.*.*` activan builds nativos para Linux, Windows, macOS y Web.
+El workflow rechaza un tag que no coincida con `version:` en `pubspec.yaml` y
+publica `SHA256SUMS.txt` junto con los artefactos.
 Consulta [docs/RELEASING.md](docs/RELEASING.md) para secrets, firma y artefactos.
 
 ## Seguridad

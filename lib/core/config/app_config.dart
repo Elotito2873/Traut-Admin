@@ -5,6 +5,7 @@ class AppConfig {
     required this.requireAdminMfa,
     required this.tileUrl,
     required this.osmUserAgent,
+    this.inactivityTimeout = const Duration(minutes: 20),
   });
 
   factory AppConfig.fromEnvironment() {
@@ -22,12 +23,22 @@ class AppConfig {
       'OSM_USER_AGENT',
       defaultValue: 'com.traut.admin',
     );
-    return const AppConfig(
+    const timeoutText = String.fromEnvironment(
+      'ADMIN_INACTIVITY_TIMEOUT_MINUTES',
+      defaultValue: '20',
+    );
+    final timeoutMinutes = int.tryParse(timeoutText);
+    return AppConfig(
       supabaseUrl: url,
       supabasePublishableKey: key,
       requireAdminMfa: requireMfa == 'true',
       tileUrl: tileUrl,
       osmUserAgent: userAgent,
+      inactivityTimeout: Duration(
+        minutes: timeoutMinutes != null && timeoutMinutes > 0
+            ? timeoutMinutes
+            : 20,
+      ),
     );
   }
 
@@ -36,6 +47,7 @@ class AppConfig {
   final bool requireAdminMfa;
   final String tileUrl;
   final String osmUserAgent;
+  final Duration inactivityTimeout;
 
   bool get isValid {
     final uri = Uri.tryParse(supabaseUrl);

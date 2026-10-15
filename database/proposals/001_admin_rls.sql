@@ -35,15 +35,35 @@ alter table public.vehicle_locations enable row level security;
 alter table public.trips enable row level security;
 alter table public.incidents enable row level security;
 
--- Acceso a la Data API. RLS sigue decidiendo qué filas puede usar cada persona.
-grant select on public.profiles to authenticated;
-grant select, insert, update on public.routes to authenticated;
-grant select, insert, update, delete on public.stops to authenticated;
-grant select, update on public.drivers to authenticated;
-grant select, insert, update on public.vehicles to authenticated;
-grant select on public.vehicle_locations to authenticated;
-grant select, update on public.trips to authenticated;
-grant select, update on public.incidents to authenticated;
+-- Acceso mínimo a la Data API. RLS sigue decidiendo qué filas puede usar cada
+-- persona. Estos GRANT por columna no revocan permisos históricos: antes de
+-- aplicar, revisar information_schema.role_table_grants y
+-- information_schema.column_privileges en el repositorio canónico.
+grant select (id, full_name, email, role, avatar_preset)
+  on public.profiles to authenticated;
+grant select (id, name, origin, destination, color, active, created_at),
+  insert (name, origin, destination, color, active),
+  update (name, origin, destination, color, active)
+  on public.routes to authenticated;
+grant select (id, route_id, name, latitude, longitude, stop_order, fare),
+  insert (route_id, name, latitude, longitude, stop_order, fare),
+  update (route_id, name, latitude, longitude, stop_order, fare),
+  delete on public.stops to authenticated;
+grant select (id, profile_id, license_number, status, created_at),
+  update (license_number, status)
+  on public.drivers to authenticated;
+grant select (id, code, plate, status, route_id, driver_id, created_at),
+  insert (code, plate, status, route_id, driver_id),
+  update (code, plate, status, route_id, driver_id)
+  on public.vehicles to authenticated;
+grant select (vehicle_id, latitude, longitude, speed, heading, updated_at)
+  on public.vehicle_locations to authenticated;
+grant select (id, vehicle_id, route_id, driver_id, status, started_at, ended_at, created_at),
+  update (status)
+  on public.trips to authenticated;
+grant select (id, vehicle_id, driver_id, type, description, status, created_at),
+  update (status)
+  on public.incidents to authenticated;
 
 drop policy if exists traut_admin_select_profiles on public.profiles;
 create policy traut_admin_select_profiles

@@ -85,7 +85,7 @@ final monitoredVehiclesProvider = FutureProvider<List<Vehicle>>(
   (ref) => ref.watch(vehicleRepositoryProvider).getMonitoredVehicles(),
 );
 
-final locationChangesProvider = StreamProvider.autoDispose<void>(
+final locationChangesProvider = StreamProvider.autoDispose<Set<String>>(
   (ref) => ref.watch(vehicleRepositoryProvider).watchLocations(),
 );
 
@@ -144,28 +144,88 @@ final routeProvider = FutureProvider.family<TransportRoute, String>(
 );
 
 class DriverQuery {
-  const DriverQuery({this.search = '', this.status});
+  const DriverQuery({
+    this.page = 0,
+    this.pageSize = 25,
+    this.search = '',
+    this.status,
+  });
+  final int page;
+  final int pageSize;
   final String search;
   final String? status;
 
   @override
   bool operator ==(Object other) =>
-      other is DriverQuery && other.search == search && other.status == status;
+      other is DriverQuery &&
+      other.page == page &&
+      other.pageSize == pageSize &&
+      other.search == search &&
+      other.status == status;
   @override
-  int get hashCode => Object.hash(search, status);
+  int get hashCode => Object.hash(page, pageSize, search, status);
 }
 
-final driversProvider = FutureProvider.family<List<Driver>, DriverQuery>(
+final driversProvider = FutureProvider.family<PagedResult<Driver>, DriverQuery>(
   (ref, query) => ref
       .watch(driverRepositoryProvider)
-      .getDrivers(search: query.search, status: query.status),
+      .getDrivers(
+        page: query.page,
+        pageSize: query.pageSize,
+        search: query.search,
+        status: query.status,
+      ),
 );
 
-final incidentsProvider = FutureProvider.family<List<Incident>, String?>(
-  (ref, status) =>
-      ref.watch(incidentRepositoryProvider).getIncidents(status: status),
-);
+class IncidentQuery {
+  const IncidentQuery({this.page = 0, this.pageSize = 25, this.status});
+  final int page;
+  final int pageSize;
+  final String? status;
 
-final tripsProvider = FutureProvider.family<List<Trip>, String?>(
-  (ref, status) => ref.watch(tripRepositoryProvider).getTrips(status: status),
+  @override
+  bool operator ==(Object other) =>
+      other is IncidentQuery &&
+      other.page == page &&
+      other.pageSize == pageSize &&
+      other.status == status;
+  @override
+  int get hashCode => Object.hash(page, pageSize, status);
+}
+
+final incidentsProvider =
+    FutureProvider.family<PagedResult<Incident>, IncidentQuery>(
+      (ref, query) => ref
+          .watch(incidentRepositoryProvider)
+          .getIncidents(
+            page: query.page,
+            pageSize: query.pageSize,
+            status: query.status,
+          ),
+    );
+
+class TripQuery {
+  const TripQuery({this.page = 0, this.pageSize = 25, this.status});
+  final int page;
+  final int pageSize;
+  final String? status;
+
+  @override
+  bool operator ==(Object other) =>
+      other is TripQuery &&
+      other.page == page &&
+      other.pageSize == pageSize &&
+      other.status == status;
+  @override
+  int get hashCode => Object.hash(page, pageSize, status);
+}
+
+final tripsProvider = FutureProvider.family<PagedResult<Trip>, TripQuery>(
+  (ref, query) => ref
+      .watch(tripRepositoryProvider)
+      .getTrips(
+        page: query.page,
+        pageSize: query.pageSize,
+        status: query.status,
+      ),
 );

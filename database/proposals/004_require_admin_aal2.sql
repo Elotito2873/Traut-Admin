@@ -1,7 +1,8 @@
 -- PROPUESTA OPCIONAL: exigir MFA (AAL2) a administradores en la base de datos.
 -- Requiere 001_admin_rls.sql. Las políticas RESTRICTIVE no alteran el acceso de
 -- pasajeros/conductores: solo agregan AAL2 cuando public.is_admin() es verdadero.
--- Revisar primero que todos los administradores hayan enrolado TOTP.
+-- Revisar primero que todos los administradores hayan enrolado TOTP y que su
+-- sesión ya reporte auth.jwt()->>'aal' = 'aal2'. Aplicar al final.
 
 begin;
 
