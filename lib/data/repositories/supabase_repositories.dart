@@ -24,6 +24,70 @@ String? vehicleIdFromLocationChange(
       oldRecord['vehicle_id']?.toString();
 }
 
+String? verifiedTotpId(Iterable<Factor> factors) {
+  for (final factor in factors) {
+    if (factor.factorType == FactorType.totp &&
+        factor.status == FactorStatus.verified) {
+      return factor.id;
+    }
+  }
+  return null;
+}
+
+Iterable<String> abandonedTotpIds(Iterable<Factor> factors) => factors
+    .where(
+      (factor) =>
+          factor.factorType == FactorType.totp &&
+          factor.status == FactorStatus.unverified,
+    )
+    .map((factor) => factor.id);
+
+AppException mapMfaAuthException(AuthException error) {
+  final errorCode = error.code;
+  if (errorCode == 'mfa_verification_failed' ||
+      errorCode == 'mfa_challenge_expired') {
+    return AppException(
+      'Usa el código actual de tu autenticador e inténtalo nuevamente.',
+      code: errorCode,
+      cause: error,
+    );
+  }
+  if (isLostMfaSessionErrorCode(errorCode) ||
+      error is AuthSessionMissingException) {
+    return AppException(
+      'Tu sesión terminó. Inicia sesión nuevamente.',
+      code: errorCode ?? 'session_not_found',
+      cause: error,
+    );
+  }
+  if (error is AuthRetryableFetchException) {
+    final timedOut = error.message.contains('TimeoutException');
+    return AppException(
+      timedOut
+          ? 'La verificación tardó demasiado. Revisa tu conexión y usa el '
+                'código actual de tu autenticador.'
+          : 'No se pudo contactar al servicio de autenticación. '
+                'Revisa tu conexión e inténtalo nuevamente.',
+      code: timedOut ? 'mfa_timeout' : 'mfa_network',
+      cause: error,
+    );
+  }
+  return AppException(
+    'No fue posible verificar el código MFA.',
+    code: errorCode,
+    cause: error,
+  );
+}
+
+RealtimeConnectionStatus realtimeConnectionStatus(
+  RealtimeSubscribeStatus status,
+) => switch (status) {
+  RealtimeSubscribeStatus.subscribed => RealtimeConnectionStatus.connected,
+  RealtimeSubscribeStatus.timedOut => RealtimeConnectionStatus.timeout,
+  RealtimeSubscribeStatus.channelError => RealtimeConnectionStatus.error,
+  RealtimeSubscribeStatus.closed => RealtimeConnectionStatus.closed,
+};
+
 class SupabaseAdminRepository
     implements
         AuthRepository,
@@ -34,9 +98,20 @@ class SupabaseAdminRepository
         IncidentRepository,
         TripRepository,
         SearchRepository {
-  SupabaseAdminRepository(this._client);
+  SupabaseAdminRepository(this._client, {this.aal2Check});
 
   final SupabaseClient _client;
+  final bool Function()? aal2Check;
+
+  void _requireAal2() {
+    if (!(aal2Check?.call() ??
+        (_client.auth.currentSession != null && hasAal2))) {
+      throw const AppException(
+        'Completa la verificación MFA para modificar datos administrativos.',
+        code: 'aal2_required',
+      );
+    }
+  }
 
   String _safeTerm(String input) => input
       .trim()
@@ -60,7 +135,7 @@ class SupabaseAdminRepository
   }
 
   @override
-  Future<void> signOut() => _client.auth.signOut();
+  Future<void> signOut() => _client.auth.signOut(scope: SignOutScope.local);
 
   @override
   Future<AdminProfile?> currentAdmin() async {
@@ -87,19 +162,32 @@ class SupabaseAdminRepository
   Future<MfaGate> mfaRequirement({required bool forceEnrollment}) async {
     final factors = await _client.auth.mfa.listFactors();
     final assurance = _client.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (factors.totp.isEmpty) {
+    final factorId = verifiedTotpId(factors.all);
+    if (factorId == null) {
       return MfaGate(
         forceEnrollment ? MfaRequirement.enrollment : MfaRequirement.none,
       );
     }
     if (assurance.currentLevel != AuthenticatorAssuranceLevels.aal2) {
-      return MfaGate(MfaRequirement.challenge, factorId: factors.totp.first.id);
+      return MfaGate(MfaRequirement.challenge, factorId: factorId);
     }
     return const MfaGate(MfaRequirement.none);
   }
 
   @override
+  bool get hasAal2 =>
+      _client.auth.mfa.getAuthenticatorAssuranceLevel().currentLevel ==
+      AuthenticatorAssuranceLevels.aal2;
+
+  @override
   Future<MfaEnrollment> enrollMfa() async {
+    final factors = await _client.auth.mfa.listFactors();
+    if (verifiedTotpId(factors.all) != null) {
+      throw const AppException('Tu cuenta ya tiene MFA configurado.');
+    }
+    for (final id in abandonedTotpIds(factors.all)) {
+      await _client.auth.mfa.unenroll(id);
+    }
     final response = await _client.auth.mfa.enroll(
       factorType: FactorType.totp,
       issuer: 'Traut Admin',
@@ -127,9 +215,12 @@ class SupabaseAdminRepository
         code: code.trim(),
       );
     } on AuthException catch (error) {
+      throw mapMfaAuthException(error);
+    } on TimeoutException catch (error) {
       throw AppException(
-        'El código no es válido o ya expiró.',
-        code: error.code,
+        'La verificación tardó demasiado. Revisa tu conexión y usa el código '
+        'actual de tu autenticador.',
+        code: 'mfa_timeout',
         cause: error,
       );
     }
@@ -138,7 +229,7 @@ class SupabaseAdminRepository
   @override
   Future<String?> verifiedTotpFactorId() async {
     final factors = await _client.auth.mfa.listFactors();
-    return factors.totp.isEmpty ? null : factors.totp.first.id;
+    return verifiedTotpId(factors.all);
   }
 
   @override
@@ -195,6 +286,7 @@ class SupabaseAdminRepository
     required int pageSize,
     String search = '',
     String? status,
+    String? availableForDriverId,
     String sortBy = 'code',
     bool ascending = true,
   }) async {
@@ -205,6 +297,9 @@ class SupabaseAdminRepository
     }
     if (status != null && status.isNotEmpty) {
       query = query.eq('status', status);
+    }
+    if (availableForDriverId != null) {
+      query = query.or('driver_id.is.null,driver_id.eq.$availableForDriverId');
     }
     final safeSort = const {'code', 'plate', 'created_at'}.contains(sortBy)
         ? sortBy
@@ -227,29 +322,64 @@ class SupabaseAdminRepository
 
   @override
   Future<List<Vehicle>> getMonitoredVehicles() async {
-    final data = await _client
-        .from('vehicles')
-        .select(_vehicleSelect)
-        .inFilter('status', const ['active', 'no_signal', 'maintenance'])
-        .order('code');
-    return data
-        .whereType<Map>()
-        .map((row) => VehicleMapper.fromJson(Map<String, dynamic>.from(row)))
-        .where((vehicle) => vehicle.location != null)
-        .toList();
+    const pageSize = 500;
+    final vehicles = <Vehicle>[];
+    for (var page = 0; ; page++) {
+      final data = await _client
+          .from('vehicles')
+          .select(_vehicleSelect)
+          .inFilter('status', const ['active', 'no_signal', 'maintenance'])
+          .order('code')
+          .order('id')
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+      vehicles.addAll(
+        data.whereType<Map>().map(
+          (row) => VehicleMapper.fromJson(Map<String, dynamic>.from(row)),
+        ),
+      );
+      if (data.length < pageSize) break;
+    }
+    return vehicles;
   }
 
   @override
-  Stream<Set<String>> watchLocations() {
-    late final StreamController<Set<String>> controller;
+  Future<List<Vehicle>> getMonitoredVehiclesByIds(Set<String> ids) async {
+    if (ids.isEmpty) return const [];
+    final vehicles = <Vehicle>[];
+    final idList = ids.toList(growable: false);
+    for (var start = 0; start < idList.length; start += 100) {
+      final data = await _client
+          .from('vehicles')
+          .select(_vehicleSelect)
+          .inFilter('id', idList.skip(start).take(100).toList())
+          .inFilter('status', const ['active', 'no_signal', 'maintenance']);
+      vehicles.addAll(
+        data.whereType<Map>().map(
+          (row) => VehicleMapper.fromJson(Map<String, dynamic>.from(row)),
+        ),
+      );
+    }
+    return vehicles;
+  }
+
+  @override
+  Stream<LocationMonitorEvent> watchLocations() {
+    late final StreamController<LocationMonitorEvent> controller;
     late final RealtimeChannel channel;
     late final LocationChangeBatcher batcher;
-    controller = StreamController<Set<String>>(
+    var connectionStatus = RealtimeConnectionStatus.reconnecting;
+    var disconnectedAfterSubscribe = false;
+    controller = StreamController<LocationMonitorEvent>(
       onListen: () {
+        controller.add(const LocationMonitorEvent());
         batcher = LocationChangeBatcher(
           window: const Duration(milliseconds: 750),
           onBatch: (ids) {
-            if (!controller.isClosed) controller.add(ids);
+            if (!controller.isClosed) {
+              controller.add(
+                LocationMonitorEvent(ids: ids, status: connectionStatus),
+              );
+            }
           },
         );
         channel = _client
@@ -266,14 +396,36 @@ class SupabaseAdminRepository
                 if (vehicleId != null) batcher.add(vehicleId);
               },
             )
-            .subscribe((status, error) {
-              if (status == RealtimeSubscribeStatus.channelError &&
-                  !controller.isClosed) {
-                controller.addError(
-                  const AppException(
-                    'Se perdió la actualización en vivo. Reconectando…',
-                  ),
-                );
+            .onPostgresChanges(
+              event: PostgresChangeEvent.all,
+              schema: 'public',
+              table: 'vehicles',
+              callback: (payload) {
+                final id =
+                    payload.newRecord['id']?.toString() ??
+                    payload.oldRecord['id']?.toString();
+                if (id != null) batcher.add(id);
+              },
+            )
+            .subscribe((subscribeStatus, error) {
+              if (controller.isClosed) return;
+              final previous = connectionStatus;
+              final next = realtimeConnectionStatus(subscribeStatus);
+              if (next != RealtimeConnectionStatus.connected &&
+                  previous == RealtimeConnectionStatus.connected) {
+                disconnectedAfterSubscribe = true;
+              }
+              connectionStatus = next;
+              controller.add(
+                LocationMonitorEvent(
+                  status: next,
+                  refreshAll:
+                      next == RealtimeConnectionStatus.connected &&
+                      disconnectedAfterSubscribe,
+                ),
+              );
+              if (next == RealtimeConnectionStatus.connected) {
+                disconnectedAfterSubscribe = false;
               }
             });
       },
@@ -287,6 +439,24 @@ class SupabaseAdminRepository
   }
 
   @override
+  Future<int> markStaleVehiclesNoSignal() async {
+    _requireAal2();
+    try {
+      final result = await _client.rpc('mark_stale_vehicles_no_signal');
+      return result is num ? result.toInt() : 0;
+    } on PostgrestException catch (error) {
+      if (error.code == '42501') {
+        throw const AppException(
+          'Completa MFA y confirma tus permisos antes de revisar la señal.',
+        );
+      }
+      throw const AppException(
+        'No fue posible revisar las unidades sin señal.',
+      );
+    }
+  }
+
+  @override
   Future<void> saveVehicle({
     String? id,
     required String code,
@@ -295,6 +465,7 @@ class SupabaseAdminRepository
     String? routeId,
     String? driverId,
   }) async {
+    _requireAal2();
     await _atomicRpc('save_vehicle_with_assignment', {
       'p_vehicle_id': id,
       'p_code': code.trim().toUpperCase(),
@@ -306,8 +477,10 @@ class SupabaseAdminRepository
   }
 
   @override
-  Future<void> updateVehicleStatus(String id, String status) =>
-      _client.from('vehicles').update({'status': status}).eq('id', id);
+  Future<void> updateVehicleStatus(String id, String status) async {
+    _requireAal2();
+    await _client.from('vehicles').update({'status': status}).eq('id', id);
+  }
 
   @override
   Future<List<TransportRoute>> getRoutes({String search = ''}) async {
@@ -352,6 +525,7 @@ class SupabaseAdminRepository
     required String color,
     required bool active,
   }) async {
+    _requireAal2();
     final values = {
       'name': name.trim(),
       'origin': origin.trim(),
@@ -372,8 +546,10 @@ class SupabaseAdminRepository
   }
 
   @override
-  Future<void> setRouteActive(String id, bool active) =>
-      _client.from('routes').update({'active': active}).eq('id', id);
+  Future<void> setRouteActive(String id, bool active) async {
+    _requireAal2();
+    await _client.from('routes').update({'active': active}).eq('id', id);
+  }
 
   @override
   Future<void> saveStop({
@@ -385,6 +561,7 @@ class SupabaseAdminRepository
     required int order,
     required double fare,
   }) async {
+    _requireAal2();
     final values = {
       'route_id': routeId,
       'name': name.trim(),
@@ -402,6 +579,7 @@ class SupabaseAdminRepository
 
   @override
   Future<void> reorderStops(List<RouteStop> stops) async {
+    _requireAal2();
     if (stops.isEmpty) return;
     final routeId = stops.first.routeId;
     if (stops.any((stop) => stop.routeId != routeId)) {
@@ -416,8 +594,10 @@ class SupabaseAdminRepository
   }
 
   @override
-  Future<void> deleteStop(String id) =>
-      _client.from('stops').delete().eq('id', id);
+  Future<void> deleteStop(String id) async {
+    _requireAal2();
+    await _client.from('stops').delete().eq('id', id);
+  }
 
   @override
   Future<PagedResult<Driver>> getDrivers({
@@ -457,13 +637,17 @@ class SupabaseAdminRepository
     required String id,
     String? licenseNumber,
     required String status,
-  }) => _client
-      .from('drivers')
-      .update({'license_number': licenseNumber?.trim(), 'status': status})
-      .eq('id', id);
+  }) async {
+    _requireAal2();
+    await _client
+        .from('drivers')
+        .update({'license_number': licenseNumber?.trim(), 'status': status})
+        .eq('id', id);
+  }
 
   @override
   Future<void> assignDriverVehicle(String driverId, String? vehicleId) async {
+    _requireAal2();
     await _atomicRpc('assign_driver_to_vehicle', {
       'p_driver_id': driverId,
       'p_vehicle_id': vehicleId,
@@ -476,19 +660,44 @@ class SupabaseAdminRepository
     required String fullName,
     String? licenseNumber,
   }) async {
-    final response = await _client.functions.invoke(
-      'invite-driver',
-      body: {
-        'email': email.trim(),
-        'full_name': fullName.trim(),
-        'license_number': licenseNumber?.trim(),
-      },
-    );
-    if (response.status < 200 || response.status >= 300) {
-      final message = response.data is Map
-          ? (response.data as Map)['message']?.toString()
-          : null;
-      throw AppException(message ?? 'No fue posible invitar al conductor.');
+    _requireAal2();
+    late final FunctionResponse response;
+    try {
+      response = await _client.functions.invoke(
+        'invite-driver',
+        body: {
+          'email': email.trim(),
+          'full_name': fullName.trim(),
+          'license_number': licenseNumber?.trim(),
+        },
+      );
+    } on FunctionException catch (error) {
+      if (error.status == 404 || error.status == 503) {
+        throw const AppException(
+          'La invitación no está disponible. Verifica el despliegue de invite-driver.',
+        );
+      }
+      if (error.status == 500 &&
+          error.details is Map &&
+          (error.details as Map)['message']?.toString().contains(
+                'DRIVER_INVITE_REDIRECT_URL',
+              ) ==
+              true) {
+        throw const AppException(
+          'Falta configurar la redirección real de Traut Conductor para invitar.',
+        );
+      }
+      if (error.status == 403) {
+        throw const AppException(
+          'Confirma tus permisos de administrador y MFA antes de invitar.',
+        );
+      }
+      if (error.status == 409) {
+        throw const AppException(
+          'El correo ya tiene una cuenta o invitación; revisa su estado antes de reintentar.',
+        );
+      }
+      throw const AppException('No fue posible invitar al conductor.');
     }
     return response.data is Map
         ? (response.data as Map)['message']?.toString() ??
@@ -508,40 +717,17 @@ class SupabaseAdminRepository
         vehicles(code),drivers(profiles(full_name))
       ''');
     if (status != null && status.isNotEmpty) query = query.eq('status', status);
-    List<dynamic> data;
-    var total = 0;
-    try {
-      final response = await query
-          .order('created_at', ascending: false)
-          .range(page * pageSize, (page + 1) * pageSize - 1)
-          .count();
-      data = response.data as List;
-      total = response.count;
-    } on PostgrestException catch (error) {
-      if (!_incidentHistoryUnavailable(error)) {
-        rethrow;
-      }
-      dynamic fallback = _client.from('incidents').select('''
-          id,vehicle_id,driver_id,type,description,status,created_at,
-          vehicles(code),drivers(profiles(full_name))
-        ''');
-      if (status != null && status.isNotEmpty) {
-        fallback = fallback.eq('status', status);
-      }
-      final response = await fallback
-          .order('created_at', ascending: false)
-          .range(page * pageSize, (page + 1) * pageSize - 1)
-          .count();
-      data = response.data as List;
-      total = response.count;
-    }
-    final items = data
+    final response = await query
+        .order('created_at', ascending: false)
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+        .count();
+    final items = (response.data as List)
         .whereType<Map>()
         .map((row) => IncidentMapper.fromJson(Map<String, dynamic>.from(row)))
         .toList();
     return PagedResult(
       items: items,
-      total: total,
+      total: response.count,
       page: page,
       pageSize: pageSize,
     );
@@ -553,18 +739,12 @@ class SupabaseAdminRepository
     required String status,
     String? resolutionNotes,
   }) async {
+    _requireAal2();
     final values = <String, Object?>{
       'status': status,
       'resolution_notes': resolutionNotes?.trim(),
     };
-    try {
-      await _client.from('incidents').update(values).eq('id', id);
-    } on PostgrestException catch (error) {
-      if (!_incidentHistoryUnavailable(error)) {
-        rethrow;
-      }
-      await _client.from('incidents').update({'status': status}).eq('id', id);
-    }
+    await _client.from('incidents').update(values).eq('id', id);
   }
 
   @override
@@ -595,16 +775,9 @@ class SupabaseAdminRepository
   }
 
   @override
-  Future<void> updateTripStatus(String id, String status) =>
-      _client.from('trips').update({'status': status}).eq('id', id);
-
-  bool _incidentHistoryUnavailable(PostgrestException error) {
-    if (error.code == '42703' || error.code == 'PGRST204') return true;
-    // Compatibilidad transitoria hasta aplicar 003_incident_history.sql.
-    // Eliminar esta rama junto con el fallback tras completar el rollout.
-    return error.message.contains('updated_at') ||
-        error.message.contains('resolution_notes') ||
-        error.message.contains('resolved_at');
+  Future<void> updateTripStatus(String id, String status) async {
+    _requireAal2();
+    await _client.from('trips').update({'status': status}).eq('id', id);
   }
 
   Future<void> _atomicRpc(String function, Map<String, Object?> params) async {

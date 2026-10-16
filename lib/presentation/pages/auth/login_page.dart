@@ -134,6 +134,24 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                               state.busy ? 'Verificando…' : 'Iniciar sesión',
                             ),
                           ),
+                          TextButton(
+                            onPressed: () => showDialog<void>(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Recuperación de contraseña'),
+                                content: const Text(
+                                  'La recuperación aún requiere un callback HTTPS de Web Admin configurado y verificado en Supabase. Contacta al responsable de acceso; no se enviará un enlace sin destino seguro.',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text('Entendido'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            child: const Text('¿Olvidaste tu contraseña?'),
+                          ),
                           const SizedBox(height: 16),
                           const Text(
                             'El acceso está limitado a cuentas administrativas existentes.',

@@ -23,6 +23,10 @@ de acceso. `locked` conserva el `ShellRoute` montado, lo cubre con una barrera y
 exige otro TOTP; así no descarta silenciosamente formularios abiertos. La barra
 lateral conserva su preferencia local.
 
+La revalidación de rol/AAL se dispara al restaurar o refrescar Auth y al reanudar
+realmente el proceso. La navegación interna no revalida la sesión ni muestra la
+barrera de comprobación.
+
 El flujo Auth es:
 
 1. restaurar o crear sesión Supabase;
@@ -41,12 +45,21 @@ implementa criptografía propia.
 
 - el dashboard realiza conteos `HEAD` en paralelo;
 - flota, conductores, incidencias y viajes paginan en servidor;
+- el snapshot de Monitoreo pagina de 500 en 500 para no truncarse al límite de
+  filas de PostgREST; parches Realtime agrupan consultas de 100 IDs;
 - listados relacionados usan embeds PostgREST para evitar N+1;
 - búsquedas esperan 400 ms y se filtran en servidor;
+- dashboard y listados conservan su resultado durante la sesión administrativa;
+  cada mutación, actualización manual y logout invalida los providers afectados;
 - el mapa escucha un solo canal `admin-vehicle-locations` compartido por provider;
-- al cancelar el provider se llama `removeChannel`, evitando canales duplicados;
-- el payload extrae `vehicle_id` y agrupa IDs durante 750 ms antes de invalidar
-  vehículos monitoreados; un burst GPS produce una recarga, no una por punto;
+- el provider Realtime sí es `autoDispose`: al salir de Monitoreo se llama
+  `removeChannel` y al volver se crea exactamente uno, evitando canales
+  duplicados;
+- el payload extrae `vehicle_id` y agrupa IDs durante 750 ms; se consultan solo
+  los IDs cambiados y se mezclan con la lista actual sin perder la cámara;
+- el canal informa conectado/reconectando/timeout/error/cerrado; al reconectar
+  se recarga la lista completa para no dejar eventos perdidos;
+- las unidades sin GPS siguen en lista, pero no generan marcadores;
 - cambios de ubicación ya no invalidan métricas independientes de la ubicación.
 
 Las asignaciones conductor/unidad y el reordenamiento nunca encadenan `UPDATE`
@@ -65,4 +78,6 @@ un OSRM autoalojado futuro, sin cambiar las entidades de paradas.
 
 Las páginas modelan loading, success, empty y error/retry. Los detalles técnicos
 no se muestran ni se imprimen en producción. Los formularios validan antes de
-invocar los casos de uso.
+invocar los casos de uso. El cliente HTTP limita la espera de respuesta inicial
+a 25 segundos y nunca reintenta mutaciones automáticamente. Tras restauración,
+refresh o regreso a la app se vuelve a comprobar `profiles.role`.

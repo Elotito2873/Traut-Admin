@@ -1,11 +1,119 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:traut_admin/core/errors/app_exception.dart';
 import 'package:traut_admin/data/repositories/supabase_repositories.dart';
 import 'package:traut_admin/domain/entities/transport_entities.dart';
+import 'package:traut_admin/domain/repositories/repositories.dart';
 
 void main() {
+  test('estados Realtime se exponen sin terminar el stream', () {
+    expect(
+      realtimeConnectionStatus(RealtimeSubscribeStatus.subscribed),
+      RealtimeConnectionStatus.connected,
+    );
+    expect(
+      realtimeConnectionStatus(RealtimeSubscribeStatus.timedOut),
+      RealtimeConnectionStatus.timeout,
+    );
+    expect(
+      realtimeConnectionStatus(RealtimeSubscribeStatus.channelError),
+      RealtimeConnectionStatus.error,
+    );
+    expect(
+      realtimeConnectionStatus(RealtimeSubscribeStatus.closed),
+      RealtimeConnectionStatus.closed,
+    );
+  });
+
+  test('factor TOTP no verificado no habilita challenge ni lock', () {
+    final pending = Factor(
+      id: 'pending',
+      friendlyName: null,
+      factorType: FactorType.totp,
+      status: FactorStatus.unverified,
+      createdAt: DateTime.utc(2026),
+      updatedAt: DateTime.utc(2026),
+    );
+    final verified = Factor(
+      id: 'verified',
+      friendlyName: null,
+      factorType: FactorType.totp,
+      status: FactorStatus.verified,
+      createdAt: DateTime.utc(2026),
+      updatedAt: DateTime.utc(2026),
+    );
+    expect(verifiedTotpId([pending]), isNull);
+    expect(verifiedTotpId([pending, verified]), 'verified');
+    expect(abandonedTotpIds([pending, verified]), ['pending']);
+  });
+
+  for (final code in ['mfa_verification_failed', 'mfa_challenge_expired']) {
+    test('MFA traduce $code sin filtrar detalles internos', () {
+      final mapped = mapMfaAuthException(
+        AuthApiException('server detail', statusCode: '422', code: code),
+      );
+
+      expect(mapped.code, code);
+      expect(
+        mapped.userMessage,
+        'Usa el código actual de tu autenticador e inténtalo nuevamente.',
+      );
+      expect(mapped.userMessage, isNot(contains('server detail')));
+    });
+  }
+
+  test('MFA distingue red y sesión perdida', () {
+    final network = mapMfaAuthException(
+      AuthRetryableFetchException(message: 'socket detail'),
+    );
+    final session = mapMfaAuthException(AuthSessionMissingException());
+
+    expect(network.code, 'mfa_network');
+    expect(network.userMessage, contains('conexión'));
+    expect(session.code, 'session_not_found');
+    expect(session.userMessage, contains('sesión terminó'));
+  });
+
+  test('MFA distingue el timeout envuelto por el cliente Auth', () {
+    final timeout = mapMfaAuthException(
+      AuthRetryableFetchException(
+        message: 'TimeoutException after 0:00:25.000000',
+      ),
+    );
+
+    expect(timeout.code, 'mfa_timeout');
+    expect(timeout.userMessage, contains('tardó demasiado'));
+  });
+
+  test('mutaciones no empiezan sin AAL2', () async {
+    var requests = 0;
+    final repository = SupabaseAdminRepository(
+      SupabaseClient(
+        'https://project.supabase.co',
+        'sb_publishable_test',
+        httpClient: MockClient((request) async {
+          requests++;
+          return http.Response('null', 200, request: request);
+        }),
+      ),
+      aal2Check: () => false,
+    );
+
+    await expectLater(
+      repository.assignDriverVehicle('driver-1', 'vehicle-1'),
+      throwsA(isA<Exception>()),
+    );
+    await expectLater(
+      repository.updateVehicleStatus('vehicle-1', 'active'),
+      throwsA(isA<Exception>()),
+    );
+    expect(requests, 0);
+  });
+
   test('getMetrics obtiene conteos sin descargar filas', () async {
     final requests = <http.Request>[];
     final client = MockClient((request) async {
@@ -187,6 +295,129 @@ void main() {
       'vehicle-old',
     );
   });
+
+  test('actualización GPS consulta únicamente los IDs afectados', () async {
+    late http.Request captured;
+    final repository = _repository((request) async {
+      captured = request;
+      return http.Response(
+        '''[{"id":"vehicle-2","code":"U-02","plate":"ABC-002","status":"active","created_at":"2026-01-01T00:00:00Z","routes":null,"drivers":null,"vehicle_locations":[{"latitude":19.43,"longitude":-99.13,"speed":22,"heading":0,"updated_at":"2026-01-01T01:00:00Z"}]}]''',
+        200,
+        headers: {'content-type': 'application/json'},
+        request: request,
+      );
+    });
+
+    final vehicles = await repository.getMonitoredVehiclesByIds({
+      'vehicle-1',
+      'vehicle-2',
+    });
+
+    expect(vehicles.single.id, 'vehicle-2');
+    expect(captured.url.queryParameters['id'], contains('vehicle-1'));
+    expect(captured.url.queryParameters['id'], contains('vehicle-2'));
+    expect(captured.url.queryParameters['status'], contains('active'));
+  });
+
+  test('monitoreo conserva unidades sin ubicación', () async {
+    final repository = _repository(
+      (request) async => http.Response(
+        '''[{"id":"vehicle-1","code":"U-01","plate":"ABC-001","status":"no_signal","created_at":"2026-01-01T00:00:00Z","routes":null,"drivers":null,"vehicle_locations":null}]''',
+        200,
+        headers: {'content-type': 'application/json'},
+        request: request,
+      ),
+    );
+
+    final vehicles = await repository.getMonitoredVehicles();
+    expect(vehicles.single.id, 'vehicle-1');
+    expect(vehicles.single.location, isNull);
+  });
+
+  test('monitoreo pagina más allá del límite de 500 filas', () async {
+    final offsets = <String?>[];
+    final repository = _repository((request) async {
+      final offset = request.url.queryParameters['offset'];
+      offsets.add(offset);
+      final rows = List.generate(
+        offset == '0' ? 500 : 1,
+        (index) => {
+          'id': '$offset-$index',
+          'code': 'U-$offset-$index',
+          'plate': 'ABC-001',
+          'status': 'active',
+          'created_at': '2026-01-01T00:00:00Z',
+        },
+      );
+      return http.Response(
+        jsonEncode(rows),
+        200,
+        headers: {'content-type': 'application/json'},
+        request: request,
+      );
+    });
+
+    final vehicles = await repository.getMonitoredVehicles();
+    expect(vehicles, hasLength(501));
+    expect(offsets, ['0', '500']);
+  });
+
+  test(
+    'selector de unidades filtra disponibles en servidor y pagina',
+    () async {
+      late http.Request captured;
+      final repository = _repository((request) async {
+        captured = request;
+        return http.Response(
+          '[]',
+          200,
+          headers: {
+            'content-type': 'application/json',
+            'content-range': '20-39/70',
+          },
+          request: request,
+        );
+      });
+
+      final result = await repository.getVehicles(
+        page: 1,
+        pageSize: 20,
+        search: 'U-99',
+        availableForDriverId: 'driver-1',
+      );
+      expect(result.hasNext, isTrue);
+      expect(captured.url.queryParameters['or'], contains('driver_id.is.null'));
+      expect(captured.url.queryParameters['offset'], '20');
+    },
+  );
+
+  test(
+    'función no desplegada se explica sin filtrar detalles internos',
+    () async {
+      final repository = _repository(
+        (request) async => http.Response(
+          '{"message":"relay internal detail"}',
+          404,
+          headers: {'content-type': 'application/json'},
+          request: request,
+        ),
+      );
+
+      await expectLater(
+        repository.inviteDriver(
+          email: 'driver@example.com',
+          fullName: 'Conductor',
+        ),
+        throwsA(
+          isA<AppException>().having(
+            (error) => error.userMessage,
+            'message',
+            contains('despliegue'),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 SupabaseAdminRepository _repository(
@@ -198,6 +429,7 @@ SupabaseAdminRepository _repository(
       'sb_publishable_test',
       httpClient: MockClient(handler),
     ),
+    aal2Check: () => true,
   );
 }
 

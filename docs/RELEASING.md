@@ -5,6 +5,10 @@ El proyecto usa SemVer y comienza en `0.1.0+1`. Crea tags `v0.1.0`, `v0.1.1`,
 
 CI y Release fijan Flutter 3.44.4 (Dart 3.12.2). No cambies esa versión durante
 esta release sin repetir analyze, tests y todos los builds.
+CI también ejecuta `deno check` y la prueba CORS de `invite-driver` con Deno
+2.9.7 y no necesita secretos. En macOS, DebugProfile y Release incluyen
+`com.apple.security.network.client = true`; compruébalo en un build nativo antes
+de distribuir para que Supabase, Realtime y tiles puedan salir del sandbox.
 
 ## Variables obligatorias
 

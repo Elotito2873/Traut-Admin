@@ -11,16 +11,23 @@ elimina objetos usados por las otras aplicaciones.
 - rutas: `routes` con `stops` y IDs de `vehicles`;
 - conductores: `drivers` con `profiles`, unidad, ruta y última ubicación;
 - viajes/incidencias: relaciones de unidad, ruta, conductor y perfil;
-- Realtime: `postgres_changes` sobre `public.vehicle_locations`.
+- Realtime: un canal con `postgres_changes` sobre `public.vehicle_locations` y
+  `public.vehicles` para recibir también cambios de estado/asignación.
 
-`vehicle_locations` debe permanecer dentro de la publicación Realtime. En el
+`vehicle_locations` debe permanecer dentro de la publicación Realtime. Para
+sincronizar cambios remotos de estado sin recarga manual, verifica también
+`vehicles` en esa publicación; no se altera desde esta aplicación. En el
 Dashboard actual esto se revisa en **Database → Publications/Pipelines →
 supabase_realtime**. No se intenta modificar el esquema `realtime`.
 
-## Propuestas SQL
+## Estado de propuestas SQL
 
-Aplicar solo después de revisión y copiándolas a la historia canónica de
-migraciones de Traut, en este orden:
+El historial canónico está en `J4v4HK/Komport/supabase/migrations`. Según el
+estado comunicado para este proyecto, 001/002/003/006/007/008/005 ya están
+incorporadas allí y aplicadas al Supabase compartido. Este repo conserva SQL de
+referencia, no una segunda historia migratoria. No ejecutar `db push` aquí.
+
+Orden histórico de referencia:
 
 1. `001_admin_rls.sql`: función `is_admin`, grants y políticas adicionales.
 2. `002_audit_logs.sql`: tabla inmutable, índices y triggers administrativos.
@@ -34,14 +41,11 @@ migraciones de Traut, en este orden:
    UPDATE.
 7. `005_no_signal_detection.sql`: wrapper manual admin+AAL2 y worker privado
    opcional para marcar activas sin señal; no crea un schedule ni reactiva unidades.
-8. `004_require_admin_aal2.sql`: aplicar al final, solo después de completar el
-   enrolamiento y comprobar AAL2 de todos los administradores.
+8. `004_require_admin_aal2.sql`: **pendiente**. Aplicar manualmente solo después
+   de completar el enrolamiento y comprobar AAL2 de al menos un admin real.
 
-La aplicación tiene fallback para el esquema original de `incidents`: podrá
-cambiar `status`, pero las notas/fechas solo persisten tras la propuesta 003.
-El fallback usa primero códigos `42703`/`PGRST204`; la inspección de texto queda
-solo para el rollout. Después de aplicar 003 en todos los entornos, elimina
-`_incidentHistoryUnavailable` y ambas consultas fallback del repositorio.
+El fallback del esquema antiguo de `incidents` fue retirado; una discrepancia de
+esquema ahora produce error visible en lugar de aparentar que se guardaron notas.
 
 ## Preflight obligatorio
 
@@ -77,7 +81,8 @@ Flutter ya no envía su reloj. Los triggers/RPC alimentan `audit_logs`, no la UI
 
 ## Sin señal
 
-`public.mark_stale_vehicles_no_signal` es el wrapper para una llamada humana:
+`public.mark_stale_vehicles_no_signal` es el wrapper para una llamada humana
+confirmada desde Monitoreo:
 exige administrador y JWT AAL2. Delega en
 `private.mark_stale_vehicles_no_signal`, que compara
 `vehicle_locations.updated_at` con `now()` del servidor y solo cambia unidades

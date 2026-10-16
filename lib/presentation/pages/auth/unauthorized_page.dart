@@ -30,15 +30,20 @@ class UnauthorizedPage extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'La sesión administrativa fue cerrada. Solicita acceso al responsable de Supabase.',
+                  'El acceso administrativo fue bloqueado. Solicita acceso al responsable de Supabase.',
                   textAlign: TextAlign.center,
                 ),
+                if (ref.watch(authControllerProvider).error
+                    case final error?) ...[
+                  const SizedBox(height: 12),
+                  Text(error, textAlign: TextAlign.center),
+                ],
                 const SizedBox(height: 24),
                 FilledButton(
                   onPressed: ref
                       .read(authControllerProvider.notifier)
                       .returnToLogin,
-                  child: const Text('Volver al inicio de sesión'),
+                  child: const Text('Cerrar sesión e ir al inicio'),
                 ),
               ],
             ),

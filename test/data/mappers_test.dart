@@ -29,6 +29,35 @@ void main() {
     expect(vehicle.location?.speed, 32.5);
   });
 
+  test('GPS inválido no crea marcador en 0,0 ni fecha ficticia', () {
+    final vehicle = VehicleMapper.fromJson({
+      'id': 'bad-gps',
+      'code': 'U-99',
+      'status': 'no_signal',
+      'created_at': 'fecha-inválida',
+      'vehicle_locations': {
+        'latitude': 200,
+        'longitude': null,
+        'updated_at': 'fecha-inválida',
+      },
+    });
+    expect(vehicle.location, isNull);
+    expect(vehicle.invalidLocationData, isTrue);
+    expect(vehicle.createdAt, isNull);
+  });
+
+  test('paradas con coordenadas inválidas se omiten sin perder la ruta', () {
+    final route = RouteMapper.fromJson({
+      'id': 'route-1',
+      'stops': [
+        {'id': 'bad', 'latitude': 91, 'longitude': 0, 'stop_order': 1},
+        {'id': 'good', 'latitude': 19, 'longitude': -99, 'stop_order': 2},
+      ],
+    });
+    expect(route.stops.map((stop) => stop.id), ['good']);
+    expect(route.invalidStopCount, 1);
+  });
+
   test('RouteMapper ordena paradas y calcula tarifa máxima', () {
     final route = RouteMapper.fromJson({
       'id': 'route-1',

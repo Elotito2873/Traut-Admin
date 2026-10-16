@@ -16,9 +16,17 @@ List<Map<String, dynamic>> _relations(Object? value) {
       .toList();
 }
 
-DateTime _date(Object? value) =>
-    DateTime.tryParse(value?.toString() ?? '') ??
-    DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+DateTime? _date(Object? value) => DateTime.tryParse(value?.toString() ?? '');
+
+double? _coordinate(Object? value, double limit) {
+  final number = switch (value) {
+    num number => number.toDouble(),
+    String text => double.tryParse(text),
+    _ => null,
+  };
+  if (number == null || !number.isFinite || number.abs() > limit) return null;
+  return number;
+}
 
 double _number(Object? value) => switch (value) {
   num number => number.toDouble(),
@@ -46,6 +54,14 @@ class VehicleMapper {
     final driver = _relation(json['drivers']);
     final profile = _relation(driver?['profiles']);
     final location = _relation(json['vehicle_locations']);
+    final latitude = _coordinate(location?['latitude'], 90);
+    final longitude = _coordinate(location?['longitude'], 180);
+    final updatedAt = _date(location?['updated_at']);
+    final validLocation =
+        location != null &&
+        latitude != null &&
+        longitude != null &&
+        updatedAt != null;
     return Vehicle(
       id: json['id']?.toString() ?? '',
       code: json['code']?.toString() ?? '',
@@ -56,14 +72,15 @@ class VehicleMapper {
       routeName: route?['name']?.toString(),
       driverId: json['driver_id']?.toString(),
       driverName: profile?['full_name']?.toString(),
-      location: location == null
+      invalidLocationData: location != null && !validLocation,
+      location: !validLocation
           ? null
           : VehicleLocation(
-              latitude: _number(location['latitude']),
-              longitude: _number(location['longitude']),
+              latitude: latitude,
+              longitude: longitude,
               speed: _number(location['speed']),
               heading: _number(location['heading']),
-              updatedAt: _date(location['updated_at']),
+              updatedAt: updatedAt,
             ),
     );
   }
@@ -72,23 +89,30 @@ class VehicleMapper {
 class StopMapper {
   const StopMapper._();
 
-  static RouteStop fromJson(Map<String, dynamic> json) => RouteStop(
-    id: json['id']?.toString() ?? '',
-    routeId: json['route_id']?.toString() ?? '',
-    name: json['name']?.toString() ?? '',
-    latitude: _number(json['latitude']),
-    longitude: _number(json['longitude']),
-    order: (json['stop_order'] as num?)?.toInt() ?? 0,
-    fare: _number(json['fare']),
-  );
+  static RouteStop? fromJson(Map<String, dynamic> json) {
+    final latitude = _coordinate(json['latitude'], 90);
+    final longitude = _coordinate(json['longitude'], 180);
+    if (latitude == null || longitude == null) return null;
+    return RouteStop(
+      id: json['id']?.toString() ?? '',
+      routeId: json['route_id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      latitude: latitude,
+      longitude: longitude,
+      order: (json['stop_order'] as num?)?.toInt() ?? 0,
+      fare: _number(json['fare']),
+    );
+  }
 }
 
 class RouteMapper {
   const RouteMapper._();
 
   static TransportRoute fromJson(Map<String, dynamic> json) {
-    final stops = _relations(json['stops']).map(StopMapper.fromJson).toList()
-      ..sort((a, b) => a.order.compareTo(b.order));
+    final rawStops = _relations(json['stops']);
+    final stops =
+        rawStops.map(StopMapper.fromJson).whereType<RouteStop>().toList()
+          ..sort((a, b) => a.order.compareTo(b.order));
     return TransportRoute(
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
@@ -99,6 +123,7 @@ class RouteMapper {
       createdAt: _date(json['created_at']),
       stops: stops,
       vehicleCount: _relations(json['vehicles']).length,
+      invalidStopCount: rawStops.length - stops.length,
     );
   }
 }

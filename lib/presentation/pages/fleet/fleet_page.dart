@@ -8,6 +8,7 @@ import '../../../core/utils/validators.dart';
 import '../../../domain/entities/transport_entities.dart';
 import '../../controllers/providers.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/paged_entity_picker.dart';
 
 class FleetPage extends ConsumerStatefulWidget {
   const FleetPage({super.key});
@@ -72,7 +73,7 @@ class _FleetPageState extends ConsumerState<FleetPage> {
   Widget build(BuildContext context) {
     final vehicles = ref.watch(vehiclesProvider(_query));
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: responsivePagePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -93,7 +94,7 @@ class _FleetPageState extends ConsumerState<FleetPage> {
             runSpacing: 12,
             children: [
               SizedBox(
-                width: 330,
+                width: responsiveFieldWidth(context, 330),
                 child: TextField(
                   controller: _searchController,
                   onChanged: _onSearch,
@@ -106,6 +107,7 @@ class _FleetPageState extends ConsumerState<FleetPage> {
               SizedBox(
                 width: 220,
                 child: DropdownButtonFormField<String?>(
+                  isExpanded: true,
                   initialValue: _status,
                   decoration: const InputDecoration(labelText: 'Estado'),
                   items: const [
@@ -133,6 +135,7 @@ class _FleetPageState extends ConsumerState<FleetPage> {
               SizedBox(
                 width: 220,
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _sortBy,
                   decoration: const InputDecoration(labelText: 'Ordenar por'),
                   items: const [
@@ -184,73 +187,135 @@ class _FleetPageState extends ConsumerState<FleetPage> {
                   return Column(
                     children: [
                       Expanded(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: SingleChildScrollView(
-                            child: DataTable(
-                              columns: const [
-                                DataColumn(label: Text('Código')),
-                                DataColumn(label: Text('Placa')),
-                                DataColumn(label: Text('Ruta')),
-                                DataColumn(label: Text('Conductor')),
-                                DataColumn(label: Text('Estado')),
-                                DataColumn(label: Text('Última señal')),
-                                DataColumn(label: Text('Acciones')),
-                              ],
-                              rows: [
-                                for (final vehicle in result.items)
-                                  DataRow(
-                                    cells: [
-                                      DataCell(
-                                        Text(
-                                          vehicle.code,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                      DataCell(Text(vehicle.plate)),
-                                      DataCell(
-                                        Text(
-                                          vehicle.routeName ?? 'Sin asignar',
-                                        ),
-                                      ),
-                                      DataCell(
-                                        Text(
-                                          vehicle.driverName ?? 'Sin asignar',
-                                        ),
-                                      ),
-                                      DataCell(
-                                        StatusBadge(status: vehicle.status),
-                                      ),
-                                      DataCell(
-                                        Text(
-                                          vehicle.location == null
-                                              ? 'Sin señal registrada'
-                                              : DateFormat(
-                                                  'dd/MM/yyyy HH:mm',
-                                                ).format(
-                                                  vehicle.location!.updatedAt
-                                                      .toLocal(),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) =>
+                              constraints.maxWidth < 900
+                              ? ListView.builder(
+                                  itemCount: result.items.length,
+                                  itemBuilder: (context, index) {
+                                    final vehicle = result.items[index];
+                                    return Card(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(12),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    '${vehicle.code} · ${vehicle.plate}',
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.titleMedium,
+                                                  ),
                                                 ),
+                                                _VehicleActions(
+                                                  vehicle: vehicle,
+                                                  onEdit: () =>
+                                                      _openVehicleDialog(
+                                                        vehicle,
+                                                      ),
+                                                  onStatus: _changeStatus,
+                                                ),
+                                              ],
+                                            ),
+                                            StatusBadge(status: vehicle.status),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              'Ruta: ${vehicle.routeName ?? 'Sin asignar'}',
+                                            ),
+                                            Text(
+                                              'Conductor: ${vehicle.driverName ?? 'Sin asignar'}',
+                                            ),
+                                            Text(
+                                              vehicle.location == null
+                                                  ? 'Sin señal registrada'
+                                                  : 'Última señal: ${DateFormat('dd/MM/yyyy HH:mm').format(vehicle.location!.updatedAt.toLocal())}',
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      DataCell(
-                                        _VehicleActions(
-                                          vehicle: vehicle,
-                                          onEdit: () =>
-                                              _openVehicleDialog(vehicle),
-                                          onStatus: _changeStatus,
-                                        ),
-                                      ),
-                                    ],
+                                    );
+                                  },
+                                )
+                              : SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: SingleChildScrollView(
+                                    child: DataTable(
+                                      columns: const [
+                                        DataColumn(label: Text('Código')),
+                                        DataColumn(label: Text('Placa')),
+                                        DataColumn(label: Text('Ruta')),
+                                        DataColumn(label: Text('Conductor')),
+                                        DataColumn(label: Text('Estado')),
+                                        DataColumn(label: Text('Última señal')),
+                                        DataColumn(label: Text('Acciones')),
+                                      ],
+                                      rows: [
+                                        for (final vehicle in result.items)
+                                          DataRow(
+                                            cells: [
+                                              DataCell(
+                                                Text(
+                                                  vehicle.code,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                              DataCell(Text(vehicle.plate)),
+                                              DataCell(
+                                                Text(
+                                                  vehicle.routeName ??
+                                                      'Sin asignar',
+                                                ),
+                                              ),
+                                              DataCell(
+                                                Text(
+                                                  vehicle.driverName ??
+                                                      'Sin asignar',
+                                                ),
+                                              ),
+                                              DataCell(
+                                                StatusBadge(
+                                                  status: vehicle.status,
+                                                ),
+                                              ),
+                                              DataCell(
+                                                Text(
+                                                  vehicle.location == null
+                                                      ? 'Sin señal registrada'
+                                                      : DateFormat(
+                                                          'dd/MM/yyyy HH:mm',
+                                                        ).format(
+                                                          vehicle
+                                                              .location!
+                                                              .updatedAt
+                                                              .toLocal(),
+                                                        ),
+                                                ),
+                                              ),
+                                              DataCell(
+                                                _VehicleActions(
+                                                  vehicle: vehicle,
+                                                  onEdit: () =>
+                                                      _openVehicleDialog(
+                                                        vehicle,
+                                                      ),
+                                                  onStatus: _changeStatus,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                      ],
+                                    ),
                                   ),
-                              ],
-                            ),
-                          ),
+                                ),
                         ),
                       ),
-                      _PaginationBar(
+                      PagedTableFooter<Vehicle>(
                         result: result,
                         onPageSize: (value) {
                           setState(() {
@@ -261,12 +326,7 @@ class _FleetPageState extends ConsumerState<FleetPage> {
                               .read(preferencesProvider)
                               .saveTablePageSize(value);
                         },
-                        onPrevious: _page == 0
-                            ? null
-                            : () => setState(() => _page--),
-                        onNext: result.hasNext
-                            ? () => setState(() => _page++)
-                            : null,
+                        onPage: (value) => setState(() => _page = value),
                       ),
                     ],
                   );
@@ -352,59 +412,6 @@ class _VehicleActions extends StatelessWidget {
   );
 }
 
-class _PaginationBar extends StatelessWidget {
-  const _PaginationBar({
-    required this.result,
-    required this.onPageSize,
-    this.onPrevious,
-    this.onNext,
-  });
-  final PagedResult<Vehicle> result;
-  final ValueChanged<int> onPageSize;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onNext;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        const Text('Filas:'),
-        const SizedBox(width: 8),
-        DropdownButton<int>(
-          value: result.pageSize,
-          items: const [
-            DropdownMenuItem(value: 10, child: Text('10')),
-            DropdownMenuItem(value: 25, child: Text('25')),
-            DropdownMenuItem(value: 50, child: Text('50')),
-          ],
-          onChanged: (value) {
-            if (value != null) onPageSize(value);
-          },
-        ),
-        const SizedBox(width: 18),
-        Text(
-          result.total == 0
-              ? '0 registros'
-              : '${result.page * result.pageSize + 1}–${result.page * result.pageSize + result.items.length} de ${result.total}',
-        ),
-        const SizedBox(width: 12),
-        IconButton(
-          tooltip: 'Página anterior',
-          onPressed: onPrevious,
-          icon: const Icon(Icons.chevron_left),
-        ),
-        IconButton(
-          tooltip: 'Página siguiente',
-          onPressed: onNext,
-          icon: const Icon(Icons.chevron_right),
-        ),
-      ],
-    ),
-  );
-}
-
 class VehicleFormDialog extends ConsumerStatefulWidget {
   const VehicleFormDialog({super.key, this.vehicle});
   final Vehicle? vehicle;
@@ -420,7 +427,9 @@ class _VehicleFormDialogState extends ConsumerState<VehicleFormDialog> {
   late String _status;
   String? _routeId;
   String? _driverId;
+  String? _driverName;
   bool _saving = false;
+  late final Future<List<TransportRoute>> _routes;
 
   @override
   void initState() {
@@ -430,6 +439,8 @@ class _VehicleFormDialogState extends ConsumerState<VehicleFormDialog> {
     _status = widget.vehicle?.status ?? 'active';
     _routeId = widget.vehicle?.routeId;
     _driverId = widget.vehicle?.driverId;
+    _driverName = widget.vehicle?.driverName;
+    _routes = ref.read(routeRepositoryProvider).getRoutes();
   }
 
   @override
@@ -441,24 +452,26 @@ class _VehicleFormDialogState extends ConsumerState<VehicleFormDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final options = Future.wait([
-      ref.read(routeRepositoryProvider).getRoutes(),
-      ref
-          .read(driverRepositoryProvider)
-          .getDrivers(page: 0, pageSize: 200, status: 'active'),
-    ]);
     return AlertDialog(
       title: Text(widget.vehicle == null ? 'Nueva unidad' : 'Editar unidad'),
       content: SizedBox(
-        width: 560,
-        child: FutureBuilder<List<Object>>(
-          future: options,
+        width: responsiveDialogWidth(context, 560),
+        child: FutureBuilder<List<TransportRoute>>(
+          future: _routes,
           builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return SizedBox(
+                height: 240,
+                child: ErrorPanel(
+                  error: snapshot.error!,
+                  onRetry: () => Navigator.pop(context, false),
+                ),
+              );
+            }
             if (!snapshot.hasData) {
               return const SizedBox(height: 240, child: LoadingPanel());
             }
-            final routes = snapshot.data![0] as List<TransportRoute>;
-            final drivers = (snapshot.data![1] as PagedResult<Driver>).items;
+            final routes = snapshot.data!;
             return Form(
               key: _formKey,
               child: SingleChildScrollView(
@@ -481,6 +494,7 @@ class _VehicleFormDialogState extends ConsumerState<VehicleFormDialog> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: _status,
                       decoration: const InputDecoration(labelText: 'Estado'),
                       items: const [
@@ -505,6 +519,7 @@ class _VehicleFormDialogState extends ConsumerState<VehicleFormDialog> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String?>(
+                      isExpanded: true,
                       initialValue: _routeId,
                       decoration: const InputDecoration(
                         labelText: 'Ruta asignada',
@@ -523,23 +538,48 @@ class _VehicleFormDialogState extends ConsumerState<VehicleFormDialog> {
                       onChanged: (value) => _routeId = value,
                     ),
                     const SizedBox(height: 12),
-                    DropdownButtonFormField<String?>(
-                      initialValue: _driverId,
-                      decoration: const InputDecoration(
-                        labelText: 'Conductor asignado',
-                      ),
-                      items: [
-                        const DropdownMenuItem(
-                          value: null,
-                          child: Text('Sin conductor'),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _driverName ?? 'Sin conductor asignado',
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        for (final driver in drivers)
-                          DropdownMenuItem(
-                            value: driver.id,
-                            child: Text(driver.fullName),
+                        TextButton(
+                          onPressed: () async {
+                            final driver = await showPagedEntityPicker<Driver>(
+                              context,
+                              title: 'Buscar conductor activo',
+                              load: (page, query) => ref
+                                  .read(driverRepositoryProvider)
+                                  .getDrivers(
+                                    page: page,
+                                    pageSize: 20,
+                                    search: query,
+                                    status: 'active',
+                                  ),
+                              label: (driver) => driver.fullName,
+                            );
+                            if (driver != null && mounted) {
+                              setState(() {
+                                _driverId = driver.id;
+                                _driverName = driver.fullName;
+                              });
+                            }
+                          },
+                          child: const Text('Buscar'),
+                        ),
+                        if (_driverId != null)
+                          IconButton(
+                            tooltip: 'Quitar conductor',
+                            onPressed: () => setState(() {
+                              _driverId = null;
+                              _driverName = null;
+                            }),
+                            icon: const Icon(Icons.close),
                           ),
                       ],
-                      onChanged: (value) => _driverId = value,
                     ),
                   ],
                 ),

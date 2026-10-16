@@ -1,31 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../domain/entities/transport_entities.dart';
 import '../../controllers/providers.dart';
 import '../../widgets/common_widgets.dart';
-import '../../widgets/transport_map.dart';
 
 class DashboardPage extends ConsumerWidget {
   const DashboardPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    ref.listen(locationChangesProvider, (_, next) {
-      next.whenData((_) {
-        ref.invalidate(monitoredVehiclesProvider);
-      });
-    });
     final metrics = ref.watch(dashboardProvider);
-    final vehicles = ref.watch(monitoredVehiclesProvider);
     return RefreshIndicator(
       onRefresh: () async {
         ref.invalidate(dashboardProvider);
-        ref.invalidate(monitoredVehiclesProvider);
         await ref.read(dashboardProvider.future);
       },
       child: ListView(
-        padding: const EdgeInsets.all(24),
+        padding: responsivePagePadding(context),
         children: [
           const PageIntro(
             title: 'Resumen operativo',
@@ -45,24 +38,38 @@ class DashboardPage extends ConsumerWidget {
             data: (data) => _MetricsGrid(metrics: data),
           ),
           const SizedBox(height: 24),
-          Text(
-            'Mapa de monitoreo',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 390,
-            child: Card(
-              clipBehavior: Clip.antiAlias,
-              child: vehicles.when(
-                loading: () => const LoadingPanel(),
-                error: (error, _) => ErrorPanel(
-                  error: error,
-                  onRetry: () => ref.invalidate(monitoredVehiclesProvider),
-                ),
-                data: (items) => TransportMap(
-                  config: ref.watch(appConfigProvider),
-                  vehicles: items,
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: LayoutBuilder(
+                builder: (context, constraints) => Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 16,
+                  runSpacing: 12,
+                  children: [
+                    SizedBox(
+                      width: constraints.maxWidth < 420
+                          ? constraints.maxWidth
+                          : 390,
+                      child: const Row(
+                        children: [
+                          Icon(Icons.map_outlined),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'El mapa GPS en vivo está en Monitoreo.',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: () => context.go('/monitoring'),
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('Abrir monitoreo'),
+                    ),
+                  ],
                 ),
               ),
             ),

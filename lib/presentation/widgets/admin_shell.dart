@@ -24,6 +24,10 @@ const _items = [
   _NavigationItem('Configuración', '/settings', Icons.settings_outlined),
 ];
 
+const adminHeaderHeight = 78.0;
+const expandedSidebarWidth = 264.0;
+const collapsedSidebarWidth = 82.0;
+
 class AdminShell extends ConsumerStatefulWidget {
   const AdminShell({super.key, required this.child});
   final Widget child;
@@ -60,7 +64,10 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     final selected = _selectedIndex(path);
     final title = _items[selected].label;
     final wide = MediaQuery.sizeOf(context).width >= 980;
-    final searchVisible = MediaQuery.sizeOf(context).width >= 720;
+    final availableWidth =
+        MediaQuery.sizeOf(context).width -
+        (wide ? (_expanded ? expandedSidebarWidth : collapsedSidebarWidth) : 0);
+    final searchVisible = availableWidth >= 760;
     return Scaffold(
       drawer: wide
           ? null
@@ -93,58 +100,73 @@ class _AdminShellState extends ConsumerState<AdminShell> {
             Expanded(
               child: Column(
                 children: [
-                  Container(
-                    constraints: const BoxConstraints(minHeight: 78),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
+                  SizedBox(
+                    key: const ValueKey('admin-main-header'),
+                    height: adminHeaderHeight,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        border: Border(
+                          bottom: BorderSide(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          if (!wide)
+                            Builder(
+                              builder: (context) => IconButton(
+                                tooltip: 'Abrir navegación',
+                                onPressed: Scaffold.of(context).openDrawer,
+                                icon: const Icon(Icons.menu),
+                              ),
+                            ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          if (searchVisible) const GlobalSearchField(),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            tooltip: 'Cambiar tema',
+                            onPressed: () {
+                              final current = ref.read(themeModeProvider);
+                              ref
+                                  .read(themeModeProvider.notifier)
+                                  .setMode(
+                                    current == ThemeMode.dark
+                                        ? ThemeMode.light
+                                        : ThemeMode.dark,
+                                  );
+                            },
+                            icon: const Icon(Icons.contrast),
+                          ),
+                        ],
+                      ),
                     ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      border: Border(
-                        bottom: BorderSide(
-                          color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                  Expanded(
+                    child: TweenAnimationBuilder<double>(
+                      key: ValueKey(path),
+                      duration: const Duration(milliseconds: 140),
+                      curve: Curves.easeOut,
+                      tween: Tween(begin: 0, end: 1),
+                      child: widget.child,
+                      builder: (context, value, child) => Opacity(
+                        opacity: 0.92 + (0.08 * value),
+                        child: Transform.translate(
+                          offset: Offset(5 * (1 - value), 0),
+                          child: child,
                         ),
                       ),
                     ),
-                    child: Row(
-                      children: [
-                        if (!wide)
-                          Builder(
-                            builder: (context) => IconButton(
-                              tooltip: 'Abrir navegación',
-                              onPressed: Scaffold.of(context).openDrawer,
-                              icon: const Icon(Icons.menu),
-                            ),
-                          ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            title,
-                            style: Theme.of(context).textTheme.titleLarge
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                        if (searchVisible) const GlobalSearchField(),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          tooltip: 'Cambiar tema',
-                          onPressed: () {
-                            final current = ref.read(themeModeProvider);
-                            ref
-                                .read(themeModeProvider.notifier)
-                                .setMode(
-                                  current == ThemeMode.dark
-                                      ? ThemeMode.light
-                                      : ThemeMode.dark,
-                                );
-                          },
-                          icon: const Icon(Icons.contrast),
-                        ),
-                      ],
-                    ),
                   ),
-                  Expanded(child: widget.child),
                 ],
               ),
             ),
@@ -171,142 +193,156 @@ class _Sidebar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(authControllerProvider).profile;
-    final width = expanded ? 264.0 : 82.0;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
+    final width = expanded ? expandedSidebarWidth : collapsedSidebarWidth;
+    return SizedBox(
+      key: const ValueKey('admin-sidebar'),
       width: width,
-      color: Theme.of(context).colorScheme.surface,
-      child: Column(
-        children: [
-          SizedBox(
-            height: 86,
-            child: Row(
-              mainAxisAlignment: expanded
-                  ? MainAxisAlignment.start
-                  : MainAxisAlignment.center,
-              children: [
-                const SizedBox(width: 18),
-                Icon(
-                  Icons.directions_bus_filled_rounded,
-                  size: 34,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                if (expanded) ...[
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+        child: Column(
+          children: [
+            SizedBox(
+              key: const ValueKey('admin-sidebar-header'),
+              height: adminHeaderHeight,
+              child: expanded
+                  ? Row(
                       children: [
-                        Text(
-                          'Traut',
-                          style: TextStyle(
-                            fontSize: 21,
-                            fontWeight: FontWeight.w800,
+                        const SizedBox(width: 18),
+                        Icon(
+                          Icons.directions_bus_filled_rounded,
+                          size: 34,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Traut',
+                                style: TextStyle(
+                                  fontSize: 21,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              Text('Panel administrativo'),
+                            ],
                           ),
                         ),
-                        Text('Panel administrativo'),
+                        if (onToggle != null)
+                          IconButton(
+                            tooltip: 'Contraer barra lateral',
+                            onPressed: onToggle,
+                            icon: const Icon(Icons.chevron_left),
+                          ),
+                      ],
+                    )
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.directions_bus_filled_rounded,
+                          size: 26,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        SizedBox(
+                          height: 48,
+                          child: IconButton(
+                            tooltip: 'Expandir barra lateral',
+                            onPressed: onToggle,
+                            icon: const Icon(Icons.chevron_right),
+                          ),
+                        ),
                       ],
                     ),
-                  ),
-                ],
-                if (onToggle != null && expanded)
-                  IconButton(
-                    tooltip: 'Contraer barra lateral',
-                    onPressed: onToggle,
-                    icon: const Icon(Icons.chevron_left),
-                  ),
-              ],
             ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-              itemCount: _items.length,
-              itemBuilder: (context, index) {
-                final item = _items[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 5),
-                  child: Tooltip(
-                    message: expanded ? '' : item.label,
-                    child: ListTile(
-                      minTileHeight: 50,
-                      selected: selected == index,
-                      selectedTileColor: Theme.of(
-                        context,
-                      ).colorScheme.primaryContainer,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 12,
+                ),
+                itemCount: _items.length,
+                itemBuilder: (context, index) {
+                  final item = _items[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: Tooltip(
+                      message: expanded ? '' : item.label,
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: ListTile(
+                          minTileHeight: 50,
+                          selected: selected == index,
+                          selectedTileColor: Theme.of(
+                            context,
+                          ).colorScheme.primaryContainer,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: expanded ? 14 : 18,
+                          ),
+                          leading: Icon(item.icon),
+                          title: expanded ? Text(item.label) : null,
+                          onTap: () => onSelect(index),
+                        ),
                       ),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: expanded ? 14 : 18,
-                      ),
-                      leading: Icon(item.icon),
-                      title: expanded ? Text(item.label) : null,
-                      onTap: () => onSelect(index),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
-          ),
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.all(10),
-            child: expanded
-                ? Column(
-                    children: [
-                      ListTile(
-                        leading: CircleAvatar(
-                          child: Text(
-                            (profile?.fullName.isNotEmpty == true
-                                    ? profile!.fullName[0]
-                                    : 'A')
-                                .toUpperCase(),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: expanded
+                  ? Column(
+                      children: [
+                        ListTile(
+                          leading: CircleAvatar(
+                            child: Text(
+                              (profile?.fullName.isNotEmpty == true
+                                      ? profile!.fullName[0]
+                                      : 'A')
+                                  .toUpperCase(),
+                            ),
+                          ),
+                          title: Text(
+                            profile?.fullName ?? 'Administrador',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            profile?.email ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        title: Text(
-                          profile?.fullName ?? 'Administrador',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        SizedBox(
+                          width: double.infinity,
+                          child: TextButton.icon(
+                            onPressed: ref
+                                .read(authControllerProvider.notifier)
+                                .signOut,
+                            icon: const Icon(Icons.logout),
+                            label: const Text('Cerrar sesión'),
+                          ),
                         ),
-                        subtitle: Text(
-                          profile?.email ?? '',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      SizedBox(
-                        width: double.infinity,
-                        child: TextButton.icon(
-                          onPressed: ref
-                              .read(authControllerProvider.notifier)
-                              .signOut,
-                          icon: const Icon(Icons.logout),
-                          label: const Text('Cerrar sesión'),
-                        ),
-                      ),
-                    ],
-                  )
-                : Column(
-                    children: [
-                      IconButton(
-                        tooltip: 'Expandir barra lateral',
-                        onPressed: onToggle,
-                        icon: const Icon(Icons.chevron_right),
-                      ),
-                      IconButton(
-                        tooltip: 'Cerrar sesión',
-                        onPressed: ref
-                            .read(authControllerProvider.notifier)
-                            .signOut,
-                        icon: const Icon(Icons.logout),
-                      ),
-                    ],
-                  ),
-          ),
-        ],
+                      ],
+                    )
+                  : IconButton(
+                      tooltip: 'Cerrar sesión',
+                      onPressed: ref
+                          .read(authControllerProvider.notifier)
+                          .signOut,
+                      icon: const Icon(Icons.logout),
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

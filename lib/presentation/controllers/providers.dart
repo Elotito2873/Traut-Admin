@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/errors/app_exception.dart';
 import '../../core/services/preferences_service.dart';
 import '../../data/repositories/supabase_repositories.dart';
 import '../../domain/entities/transport_entities.dart';
@@ -25,6 +26,9 @@ final adminRepositoryProvider = Provider<SupabaseAdminRepository>(
 
 final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => ref.watch(adminRepositoryProvider),
+);
+final verifiedTotpProvider = FutureProvider.autoDispose<String?>(
+  (ref) => ref.watch(authRepositoryProvider).verifiedTotpFactorId(),
 );
 final dashboardRepositoryProvider = Provider<DashboardRepository>(
   (ref) => ref.watch(adminRepositoryProvider),
@@ -77,17 +81,96 @@ final themeModeProvider = NotifierProvider<ThemeController, ThemeMode>(
   ThemeController.new,
 );
 
+// Las consultas de catálogo se conservan durante la sesión administrativa.
+// Sus mutaciones y el cierre de sesión las invalidan de forma explícita.
 final dashboardProvider = FutureProvider<DashboardMetrics>(
   (ref) => ref.watch(dashboardRepositoryProvider).getMetrics(),
 );
 
-final monitoredVehiclesProvider = FutureProvider<List<Vehicle>>(
-  (ref) => ref.watch(vehicleRepositoryProvider).getMonitoredVehicles(),
-);
+class MonitoredVehiclesController extends AsyncNotifier<List<Vehicle>> {
+  final Set<String> _pendingIds = {};
+  bool _refreshing = false;
+  String? lastRefreshError;
 
-final locationChangesProvider = StreamProvider.autoDispose<Set<String>>(
-  (ref) => ref.watch(vehicleRepositoryProvider).watchLocations(),
-);
+  @override
+  Future<List<Vehicle>> build() {
+    return ref.watch(vehicleRepositoryProvider).getMonitoredVehicles();
+  }
+
+  Future<bool> refreshAll() async {
+    try {
+      final vehicles = await ref
+          .read(vehicleRepositoryProvider)
+          .getMonitoredVehicles();
+      if (!ref.mounted) return false;
+      lastRefreshError = null;
+      state = AsyncData(vehicles);
+      return true;
+    } catch (error, stackTrace) {
+      if (!ref.mounted) return false;
+      lastRefreshError = userFriendlyError(error);
+      final previous = state.value;
+      state = previous == null
+          ? AsyncError<List<Vehicle>>(error, stackTrace)
+          : AsyncData(previous);
+      return false;
+    }
+  }
+
+  Future<void> refreshIds(Set<String> ids) async {
+    if (ids.isEmpty) return;
+    _pendingIds.addAll(ids);
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      while (_pendingIds.isNotEmpty) {
+        final batch = Set<String>.of(_pendingIds);
+        _pendingIds.removeAll(batch);
+        final current = state.value;
+        if (current == null) {
+          ref.invalidateSelf();
+          return;
+        }
+        final changed = await ref
+            .read(vehicleRepositoryProvider)
+            .getMonitoredVehiclesByIds(batch);
+        if (!ref.mounted) return;
+        final merged = {for (final vehicle in current) vehicle.id: vehicle};
+        for (final id in batch) {
+          merged.remove(id);
+        }
+        for (final vehicle in changed) {
+          merged[vehicle.id] = vehicle;
+        }
+        final next = merged.values.toList()
+          ..sort((left, right) => left.code.compareTo(right.code));
+        lastRefreshError = null;
+        state = AsyncData(next);
+      }
+    } catch (error, stackTrace) {
+      if (!ref.mounted) return;
+      lastRefreshError = userFriendlyError(error);
+      final previous = state.value;
+      state = previous == null
+          ? AsyncError<List<Vehicle>>(error, stackTrace)
+          : AsyncData(previous);
+    } finally {
+      _refreshing = false;
+    }
+  }
+}
+
+final monitoredVehiclesProvider =
+    AsyncNotifierProvider<MonitoredVehiclesController, List<Vehicle>>(
+      MonitoredVehiclesController.new,
+    );
+
+// El canal Realtime solo vive mientras Monitoreo tiene un listener. Así, al
+// abandonar la pantalla se cancela el canal y al volver se crea exactamente uno.
+final locationChangesProvider =
+    StreamProvider.autoDispose<LocationMonitorEvent>(
+      (ref) => ref.watch(vehicleRepositoryProvider).watchLocations(),
+    );
 
 class VehicleQuery {
   const VehicleQuery({

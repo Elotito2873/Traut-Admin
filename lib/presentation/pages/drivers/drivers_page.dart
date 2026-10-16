@@ -8,6 +8,7 @@ import '../../../core/utils/validators.dart';
 import '../../../domain/entities/transport_entities.dart';
 import '../../controllers/providers.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/paged_entity_picker.dart';
 
 class DriversPage extends ConsumerStatefulWidget {
   const DriversPage({super.key});
@@ -47,7 +48,7 @@ class _DriversPageState extends ConsumerState<DriversPage> {
   Widget build(BuildContext context) {
     final drivers = ref.watch(driversProvider(_query));
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: responsivePagePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -68,7 +69,7 @@ class _DriversPageState extends ConsumerState<DriversPage> {
             runSpacing: 12,
             children: [
               SizedBox(
-                width: 340,
+                width: responsiveFieldWidth(context, 340),
                 child: TextField(
                   decoration: const InputDecoration(
                     labelText: 'Buscar por nombre',
@@ -90,6 +91,7 @@ class _DriversPageState extends ConsumerState<DriversPage> {
               SizedBox(
                 width: 220,
                 child: DropdownButtonFormField<String?>(
+                  isExpanded: true,
                   initialValue: _status,
                   decoration: const InputDecoration(labelText: 'Estado'),
                   items: const [
@@ -131,109 +133,141 @@ class _DriversPageState extends ConsumerState<DriversPage> {
                   return Column(
                     children: [
                       Expanded(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: SingleChildScrollView(
-                            child: DataTable(
-                              columns: const [
-                                DataColumn(label: Text('Nombre')),
-                                DataColumn(label: Text('Licencia')),
-                                DataColumn(label: Text('Estado')),
-                                DataColumn(label: Text('Unidad')),
-                                DataColumn(label: Text('Ruta')),
-                                DataColumn(label: Text('Última actividad')),
-                                DataColumn(label: Text('Acciones')),
-                              ],
-                              rows: [
-                                for (final driver in items)
-                                  DataRow(
-                                    cells: [
-                                      DataCell(
-                                        Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) =>
+                              constraints.maxWidth < 900
+                              ? ListView.builder(
+                                  itemCount: items.length,
+                                  itemBuilder: (context, index) {
+                                    final driver = items[index];
+                                    return Card(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(12),
+                                        child: Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        driver.fullName,
+                                                        style: Theme.of(
+                                                          context,
+                                                        ).textTheme.titleMedium,
+                                                      ),
+                                                      Text(
+                                                        driver.email,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                _driverActions(driver),
+                                              ],
+                                            ),
+                                            StatusBadge(status: driver.status),
+                                            const SizedBox(height: 8),
                                             Text(
-                                              driver.fullName,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                              ),
+                                              'Licencia: ${driver.licenseNumber ?? 'Sin registrar'}',
                                             ),
-                                            Text(driver.email),
+                                            Text(
+                                              'Unidad: ${driver.vehicleCode ?? 'Sin asignar'}',
+                                            ),
+                                            Text(
+                                              'Ruta: ${driver.routeName ?? 'Sin asignar'}',
+                                            ),
                                           ],
                                         ),
                                       ),
-                                      DataCell(
-                                        Text(
-                                          driver.licenseNumber ??
-                                              'Sin registrar',
+                                    );
+                                  },
+                                )
+                              : SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: SingleChildScrollView(
+                                    child: DataTable(
+                                      columns: const [
+                                        DataColumn(label: Text('Nombre')),
+                                        DataColumn(label: Text('Licencia')),
+                                        DataColumn(label: Text('Estado')),
+                                        DataColumn(label: Text('Unidad')),
+                                        DataColumn(label: Text('Ruta')),
+                                        DataColumn(
+                                          label: Text('Última actividad'),
                                         ),
-                                      ),
-                                      DataCell(
-                                        StatusBadge(status: driver.status),
-                                      ),
-                                      DataCell(
-                                        Text(
-                                          driver.vehicleCode ?? 'Sin asignar',
-                                        ),
-                                      ),
-                                      DataCell(
-                                        Text(driver.routeName ?? 'Sin asignar'),
-                                      ),
-                                      DataCell(
-                                        Text(
-                                          driver.lastActivity == null
-                                              ? 'Sin actividad registrada'
-                                              : DateFormat(
-                                                  'dd/MM/yyyy HH:mm',
-                                                ).format(
-                                                  driver.lastActivity!
-                                                      .toLocal(),
-                                                ),
-                                        ),
-                                      ),
-                                      DataCell(
-                                        PopupMenuButton<String>(
-                                          tooltip:
-                                              'Acciones de ${driver.fullName}',
-                                          onSelected: (action) =>
-                                              _handleAction(driver, action),
-                                          itemBuilder: (context) => [
-                                            const PopupMenuItem(
-                                              value: 'edit',
-                                              child: Text('Editar'),
-                                            ),
-                                            const PopupMenuItem(
-                                              value: 'assign',
-                                              child: Text('Asignar unidad'),
-                                            ),
-                                            if (driver.vehicleId != null)
-                                              const PopupMenuItem(
-                                                value: 'unassign',
-                                                child: Text(
-                                                  'Quitar asignación',
+                                        DataColumn(label: Text('Acciones')),
+                                      ],
+                                      rows: [
+                                        for (final driver in items)
+                                          DataRow(
+                                            cells: [
+                                              DataCell(
+                                                Column(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      driver.fullName,
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                    Text(driver.email),
+                                                  ],
                                                 ),
                                               ),
-                                            if (driver.status != 'suspended')
-                                              const PopupMenuItem(
-                                                value: 'suspended',
-                                                child: Text('Suspender'),
+                                              DataCell(
+                                                Text(
+                                                  driver.licenseNumber ??
+                                                      'Sin registrar',
+                                                ),
                                               ),
-                                            if (driver.status != 'active')
-                                              const PopupMenuItem(
-                                                value: 'active',
-                                                child: Text('Activar'),
+                                              DataCell(
+                                                StatusBadge(
+                                                  status: driver.status,
+                                                ),
                                               ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
+                                              DataCell(
+                                                Text(
+                                                  driver.vehicleCode ??
+                                                      'Sin asignar',
+                                                ),
+                                              ),
+                                              DataCell(
+                                                Text(
+                                                  driver.routeName ??
+                                                      'Sin asignar',
+                                                ),
+                                              ),
+                                              DataCell(
+                                                Text(
+                                                  driver.lastActivity == null
+                                                      ? 'Sin actividad registrada'
+                                                      : DateFormat(
+                                                          'dd/MM/yyyy HH:mm',
+                                                        ).format(
+                                                          driver.lastActivity!
+                                                              .toLocal(),
+                                                        ),
+                                                ),
+                                              ),
+                                              DataCell(_driverActions(driver)),
+                                            ],
+                                          ),
+                                      ],
+                                    ),
                                   ),
-                              ],
-                            ),
-                          ),
+                                ),
                         ),
                       ),
                       PagedTableFooter<Driver>(
@@ -254,6 +288,24 @@ class _DriversPageState extends ConsumerState<DriversPage> {
       ),
     );
   }
+
+  Widget _driverActions(Driver driver) => PopupMenuButton<String>(
+    tooltip: 'Acciones de ${driver.fullName}',
+    onSelected: (action) => _handleAction(driver, action),
+    itemBuilder: (context) => [
+      const PopupMenuItem(value: 'edit', child: Text('Editar')),
+      const PopupMenuItem(value: 'assign', child: Text('Asignar unidad')),
+      if (driver.vehicleId != null)
+        const PopupMenuItem(
+          value: 'unassign',
+          child: Text('Quitar asignación'),
+        ),
+      if (driver.status != 'suspended')
+        const PopupMenuItem(value: 'suspended', child: Text('Suspender')),
+      if (driver.status != 'active')
+        const PopupMenuItem(value: 'active', child: Text('Activar')),
+    ],
+  );
 
   Future<void> _handleAction(Driver driver, String action) async {
     if (action == 'edit') {
@@ -363,27 +415,32 @@ class _DriverFormDialogState extends ConsumerState<DriverFormDialog> {
   Widget build(BuildContext context) => AlertDialog(
     title: Text('Editar ${widget.driver.fullName}'),
     content: SizedBox(
-      width: 460,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _license,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Número de licencia'),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _status,
-            decoration: const InputDecoration(labelText: 'Estado'),
-            items: const [
-              DropdownMenuItem(value: 'active', child: Text('Activo')),
-              DropdownMenuItem(value: 'inactive', child: Text('Inactivo')),
-              DropdownMenuItem(value: 'suspended', child: Text('Suspendido')),
-            ],
-            onChanged: (value) => _status = value!,
-          ),
-        ],
+      width: responsiveDialogWidth(context, 460),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _license,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Número de licencia',
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              initialValue: _status,
+              decoration: const InputDecoration(labelText: 'Estado'),
+              items: const [
+                DropdownMenuItem(value: 'active', child: Text('Activo')),
+                DropdownMenuItem(value: 'inactive', child: Text('Inactivo')),
+                DropdownMenuItem(value: 'suspended', child: Text('Suspendido')),
+              ],
+              onChanged: (value) => _status = value!,
+            ),
+          ],
+        ),
       ),
     ),
     actions: [
@@ -429,48 +486,63 @@ class AssignVehicleDialog extends ConsumerStatefulWidget {
 
 class _AssignVehicleDialogState extends ConsumerState<AssignVehicleDialog> {
   String? _vehicleId;
+  String? _vehicleName;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
     _vehicleId = widget.driver.vehicleId;
+    _vehicleName = widget.driver.vehicleCode;
   }
 
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text('Asignar unidad a ${widget.driver.fullName}'),
     content: SizedBox(
-      width: 480,
-      child: FutureBuilder<PagedResult<Vehicle>>(
-        future: ref
-            .read(vehicleRepositoryProvider)
-            .getVehicles(page: 0, pageSize: 200),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const SizedBox(height: 180, child: LoadingPanel());
-          }
-          final vehicles = snapshot.data!.items
-              .where(
-                (vehicle) =>
-                    vehicle.driverId == null ||
-                    vehicle.driverId == widget.driver.id,
-              )
-              .toList();
-          return DropdownButtonFormField<String?>(
-            initialValue: _vehicleId,
-            decoration: const InputDecoration(labelText: 'Unidad'),
-            items: [
-              const DropdownMenuItem(value: null, child: Text('Sin unidad')),
-              for (final vehicle in vehicles)
-                DropdownMenuItem(
-                  value: vehicle.id,
-                  child: Text('${vehicle.code} · ${vehicle.plate}'),
-                ),
-            ],
-            onChanged: (value) => _vehicleId = value,
-          );
-        },
+      width: responsiveDialogWidth(context, 480),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              _vehicleName ?? 'Sin unidad asignada',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              final vehicle = await showPagedEntityPicker<Vehicle>(
+                context,
+                title: 'Buscar unidad disponible',
+                load: (page, query) => ref
+                    .read(vehicleRepositoryProvider)
+                    .getVehicles(
+                      page: page,
+                      pageSize: 20,
+                      search: query,
+                      availableForDriverId: widget.driver.id,
+                    ),
+                label: (vehicle) => '${vehicle.code} · ${vehicle.plate}',
+              );
+              if (vehicle != null && mounted) {
+                setState(() {
+                  _vehicleId = vehicle.id;
+                  _vehicleName = '${vehicle.code} · ${vehicle.plate}';
+                });
+              }
+            },
+            child: const Text('Buscar'),
+          ),
+          if (_vehicleId != null)
+            IconButton(
+              tooltip: 'Quitar unidad',
+              onPressed: () => setState(() {
+                _vehicleId = null;
+                _vehicleName = null;
+              }),
+              icon: const Icon(Icons.close),
+            ),
+        ],
       ),
     ),
     actions: [
@@ -527,38 +599,41 @@ class _InviteDriverDialogState extends ConsumerState<InviteDriverDialog> {
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('Invitar conductor'),
     content: SizedBox(
-      width: 500,
+      width: responsiveDialogWidth(context, 500),
       child: Form(
         key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Se enviará una invitación mediante la función segura de Supabase. No se crea ningún administrador.',
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _name,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: 'Nombre completo'),
-              validator: (value) => Validators.requiredText(value, 'El nombre'),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _email,
-              decoration: const InputDecoration(
-                labelText: 'Correo electrónico',
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Se enviará una invitación mediante la función segura de Supabase. No se crea ningún administrador.',
               ),
-              validator: Validators.email,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _license,
-              decoration: const InputDecoration(
-                labelText: 'Número de licencia (opcional)',
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _name,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'Nombre completo'),
+                validator: (value) =>
+                    Validators.requiredText(value, 'El nombre'),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _email,
+                decoration: const InputDecoration(
+                  labelText: 'Correo electrónico',
+                ),
+                validator: Validators.email,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _license,
+                decoration: const InputDecoration(
+                  labelText: 'Número de licencia (opcional)',
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     ),
