@@ -43,7 +43,7 @@ de Supabase. La app no persiste secretos TOTP. Para exigirlo:
 3. verifica en **Authentication → Multi-Factor** que TOTP esté disponible y
    enróllalo con `REQUIRE_ADMIN_MFA=true`;
 4. completa un challenge y confirma que el JWT reporta `aal = aal2`;
-5. recién entonces aplica `004_require_admin_aal2.sql`;
+5. recién entonces considera aplicar manualmente `004_require_admin_aal2.sql`;
 6. compila releases con `REQUIRE_ADMIN_MFA=true`.
 
 La policy restrictiva exige AAL2 solamente cuando `public.is_admin()` es
@@ -62,19 +62,21 @@ AAL2, valida el body y solo entonces usa `ctx.supabaseAdmin`. La respuesta no
 devuelve datos privados. La secret key es inyectada por Supabase y no se configura
 en Flutter/GitHub Actions.
 
-Despliega manualmente después de aplicar `audit_logs`:
-
-```bash
-supabase secrets set \
-  DRIVER_INVITE_REDIRECT_URL=https://conductor.example.com/auth/accept-invite
-supabase functions deploy invite-driver
-```
+No se ha verificado si la función está desplegada. Antes de desplegarla desde un
+entorno autorizado, define `DRIVER_INVITE_REDIRECT_URL` con el callback HTTPS
+real de Traut Conductor y `ADMIN_ALLOWED_ORIGINS` con los orígenes exactos de
+Web Admin separados por comas. La función niega peticiones Web con `Origin` no
+permitido; desktop sin `Origin` continúa usando JWT, role y AAL2. No incluyas
+dominios ficticios.
 
 Configura la URL de redirección de invitaciones en **Authentication → URL
 Configuration** para el flujo real de Traut Conductor, no para Traut Admin ni
 Traut Usuario. Si falta, la función falla sin mostrar secretos. Correos existentes
 con otro rol no se convierten implícitamente; duplicados devuelven conflicto.
 `drivers.id` lo genera PostgreSQL.
+El envío del correo no es transaccional: no puede des-enviarse si falla una
+escritura posterior. La función hace rollback compensatorio de datos y ofrece
+un camino de reparación idempotente para un perfil `driver` incompleto.
 
 ## Sesiones y roles
 
@@ -97,6 +99,8 @@ secret keys ni filas completas.
 Tras el timeout configurable (20 minutos por defecto), la interfaz queda bajo
 una barrera. Con TOTP conserva el árbol de formularios y exige otro challenge;
 sin TOTP cierra sesión para requerir reautenticación. No se guarda la contraseña.
+No se persiste refresh token en disco ni se reintentan escrituras offline. Tras
+un timeout de escritura, comprueba el resultado antes de reintentar.
 
 La detección manual de unidades sin señal entra por el RPC público protegido con
 admin+AAL2. Un scheduler de PostgreSQL carece de ese JWT: debe llamar al worker

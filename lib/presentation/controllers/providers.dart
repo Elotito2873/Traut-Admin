@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/errors/app_exception.dart';
 import '../../core/services/preferences_service.dart';
 import '../../data/repositories/supabase_repositories.dart';
 import '../../domain/entities/transport_entities.dart';
@@ -25,6 +26,9 @@ final adminRepositoryProvider = Provider<SupabaseAdminRepository>(
 
 final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => ref.watch(adminRepositoryProvider),
+);
+final verifiedTotpProvider = FutureProvider.autoDispose<String?>(
+  (ref) => ref.watch(authRepositoryProvider).verifiedTotpFactorId(),
 );
 final dashboardRepositoryProvider = Provider<DashboardRepository>(
   (ref) => ref.watch(adminRepositoryProvider),
@@ -77,17 +81,93 @@ final themeModeProvider = NotifierProvider<ThemeController, ThemeMode>(
   ThemeController.new,
 );
 
-final dashboardProvider = FutureProvider<DashboardMetrics>(
+final dashboardProvider = FutureProvider.autoDispose<DashboardMetrics>(
   (ref) => ref.watch(dashboardRepositoryProvider).getMetrics(),
 );
 
-final monitoredVehiclesProvider = FutureProvider<List<Vehicle>>(
-  (ref) => ref.watch(vehicleRepositoryProvider).getMonitoredVehicles(),
-);
+class MonitoredVehiclesController extends AsyncNotifier<List<Vehicle>> {
+  final Set<String> _pendingIds = {};
+  bool _refreshing = false;
+  String? lastRefreshError;
 
-final locationChangesProvider = StreamProvider.autoDispose<Set<String>>(
-  (ref) => ref.watch(vehicleRepositoryProvider).watchLocations(),
-);
+  @override
+  Future<List<Vehicle>> build() {
+    return ref.watch(vehicleRepositoryProvider).getMonitoredVehicles();
+  }
+
+  Future<bool> refreshAll() async {
+    try {
+      final vehicles = await ref
+          .read(vehicleRepositoryProvider)
+          .getMonitoredVehicles();
+      if (!ref.mounted) return false;
+      lastRefreshError = null;
+      state = AsyncData(vehicles);
+      return true;
+    } catch (error, stackTrace) {
+      if (!ref.mounted) return false;
+      lastRefreshError = userFriendlyError(error);
+      final previous = state.value;
+      state = previous == null
+          ? AsyncError<List<Vehicle>>(error, stackTrace)
+          : AsyncData(previous);
+      return false;
+    }
+  }
+
+  Future<void> refreshIds(Set<String> ids) async {
+    if (ids.isEmpty) return;
+    _pendingIds.addAll(ids);
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      while (_pendingIds.isNotEmpty) {
+        final batch = Set<String>.of(_pendingIds);
+        _pendingIds.removeAll(batch);
+        final current = state.value;
+        if (current == null) {
+          ref.invalidateSelf();
+          return;
+        }
+        final changed = await ref
+            .read(vehicleRepositoryProvider)
+            .getMonitoredVehiclesByIds(batch);
+        if (!ref.mounted) return;
+        final merged = {for (final vehicle in current) vehicle.id: vehicle};
+        for (final id in batch) {
+          merged.remove(id);
+        }
+        for (final vehicle in changed) {
+          merged[vehicle.id] = vehicle;
+        }
+        final next = merged.values.toList()
+          ..sort((left, right) => left.code.compareTo(right.code));
+        lastRefreshError = null;
+        state = AsyncData(next);
+      }
+    } catch (error, stackTrace) {
+      if (!ref.mounted) return;
+      lastRefreshError = userFriendlyError(error);
+      final previous = state.value;
+      state = previous == null
+          ? AsyncError<List<Vehicle>>(error, stackTrace)
+          : AsyncData(previous);
+    } finally {
+      _refreshing = false;
+    }
+  }
+}
+
+final monitoredVehiclesProvider =
+    AsyncNotifierProvider.autoDispose<
+      MonitoredVehiclesController,
+      List<Vehicle>
+    >(MonitoredVehiclesController.new);
+
+final locationChangesProvider =
+    StreamProvider.autoDispose<LocationMonitorEvent>(
+      (ref) => ref.watch(vehicleRepositoryProvider).watchLocations(),
+    );
 
 class VehicleQuery {
   const VehicleQuery({
@@ -121,8 +201,8 @@ class VehicleQuery {
       Object.hash(page, pageSize, search, status, sortBy, ascending);
 }
 
-final vehiclesProvider =
-    FutureProvider.family<PagedResult<Vehicle>, VehicleQuery>(
+final vehiclesProvider = FutureProvider.autoDispose
+    .family<PagedResult<Vehicle>, VehicleQuery>(
       (ref, query) => ref
           .watch(vehicleRepositoryProvider)
           .getVehicles(
@@ -135,11 +215,13 @@ final vehiclesProvider =
           ),
     );
 
-final routesProvider = FutureProvider.family<List<TransportRoute>, String>(
-  (ref, search) => ref.watch(routeRepositoryProvider).getRoutes(search: search),
-);
+final routesProvider = FutureProvider.autoDispose
+    .family<List<TransportRoute>, String>(
+      (ref, search) =>
+          ref.watch(routeRepositoryProvider).getRoutes(search: search),
+    );
 
-final routeProvider = FutureProvider.family<TransportRoute, String>(
+final routeProvider = FutureProvider.autoDispose.family<TransportRoute, String>(
   (ref, id) => ref.watch(routeRepositoryProvider).getRoute(id),
 );
 
@@ -166,16 +248,17 @@ class DriverQuery {
   int get hashCode => Object.hash(page, pageSize, search, status);
 }
 
-final driversProvider = FutureProvider.family<PagedResult<Driver>, DriverQuery>(
-  (ref, query) => ref
-      .watch(driverRepositoryProvider)
-      .getDrivers(
-        page: query.page,
-        pageSize: query.pageSize,
-        search: query.search,
-        status: query.status,
-      ),
-);
+final driversProvider = FutureProvider.autoDispose
+    .family<PagedResult<Driver>, DriverQuery>(
+      (ref, query) => ref
+          .watch(driverRepositoryProvider)
+          .getDrivers(
+            page: query.page,
+            pageSize: query.pageSize,
+            search: query.search,
+            status: query.status,
+          ),
+    );
 
 class IncidentQuery {
   const IncidentQuery({this.page = 0, this.pageSize = 25, this.status});
@@ -193,8 +276,8 @@ class IncidentQuery {
   int get hashCode => Object.hash(page, pageSize, status);
 }
 
-final incidentsProvider =
-    FutureProvider.family<PagedResult<Incident>, IncidentQuery>(
+final incidentsProvider = FutureProvider.autoDispose
+    .family<PagedResult<Incident>, IncidentQuery>(
       (ref, query) => ref
           .watch(incidentRepositoryProvider)
           .getIncidents(
@@ -220,12 +303,13 @@ class TripQuery {
   int get hashCode => Object.hash(page, pageSize, status);
 }
 
-final tripsProvider = FutureProvider.family<PagedResult<Trip>, TripQuery>(
-  (ref, query) => ref
-      .watch(tripRepositoryProvider)
-      .getTrips(
-        page: query.page,
-        pageSize: query.pageSize,
-        status: query.status,
-      ),
-);
+final tripsProvider = FutureProvider.autoDispose
+    .family<PagedResult<Trip>, TripQuery>(
+      (ref, query) => ref
+          .watch(tripRepositoryProvider)
+          .getTrips(
+            page: query.page,
+            pageSize: query.pageSize,
+            status: query.status,
+          ),
+    );

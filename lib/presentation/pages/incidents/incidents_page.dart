@@ -31,7 +31,7 @@ class _IncidentsPageState extends ConsumerState<IncidentsPage> {
   Widget build(BuildContext context) {
     final incidents = ref.watch(incidentsProvider(_query));
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: responsivePagePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -44,6 +44,7 @@ class _IncidentsPageState extends ConsumerState<IncidentsPage> {
           SizedBox(
             width: 240,
             child: DropdownButtonFormField<String?>(
+              isExpanded: true,
               initialValue: _status,
               decoration: const InputDecoration(labelText: 'Estado'),
               items: const [
@@ -80,68 +81,138 @@ class _IncidentsPageState extends ConsumerState<IncidentsPage> {
                   return Column(
                     children: [
                       Expanded(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: SingleChildScrollView(
-                            child: DataTable(
-                              columns: const [
-                                DataColumn(label: Text('Fecha')),
-                                DataColumn(label: Text('Unidad')),
-                                DataColumn(label: Text('Conductor')),
-                                DataColumn(label: Text('Tipo')),
-                                DataColumn(label: Text('Descripción')),
-                                DataColumn(label: Text('Estado')),
-                                DataColumn(label: Text('Acciones')),
-                              ],
-                              rows: [
-                                for (final incident in items)
-                                  DataRow(
-                                    cells: [
-                                      DataCell(
-                                        Text(
-                                          DateFormat('dd/MM/yyyy HH:mm').format(
-                                            incident.createdAt.toLocal(),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) =>
+                              constraints.maxWidth < 900
+                              ? ListView.builder(
+                                  itemCount: items.length,
+                                  itemBuilder: (context, index) {
+                                    final incident = items[index];
+                                    return Card(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(12),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    incident.type,
+                                                    style: Theme.of(
+                                                      context,
+                                                    ).textTheme.titleMedium,
+                                                  ),
+                                                ),
+                                                StatusBadge(
+                                                  status: incident.status,
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              incident.description ??
+                                                  'Sin descripción',
+                                              maxLines: 3,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            Text(
+                                              'Unidad: ${incident.vehicleCode ?? 'Sin unidad'}',
+                                            ),
+                                            Text(
+                                              'Conductor: ${incident.driverName ?? 'Sin conductor'}',
+                                            ),
+                                            Align(
+                                              alignment: Alignment.centerRight,
+                                              child: TextButton(
+                                                onPressed: () =>
+                                                    _openDetail(incident),
+                                                child: const Text(
+                                                  'Abrir detalle',
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                )
+                              : SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: SingleChildScrollView(
+                                    child: DataTable(
+                                      columns: const [
+                                        DataColumn(label: Text('Fecha')),
+                                        DataColumn(label: Text('Unidad')),
+                                        DataColumn(label: Text('Conductor')),
+                                        DataColumn(label: Text('Tipo')),
+                                        DataColumn(label: Text('Descripción')),
+                                        DataColumn(label: Text('Estado')),
+                                        DataColumn(label: Text('Acciones')),
+                                      ],
+                                      rows: [
+                                        for (final incident in items)
+                                          DataRow(
+                                            cells: [
+                                              DataCell(
+                                                Text(
+                                                  incident.createdAt == null
+                                                      ? 'Fecha no disponible'
+                                                      : DateFormat(
+                                                          'dd/MM/yyyy HH:mm',
+                                                        ).format(
+                                                          incident.createdAt!
+                                                              .toLocal(),
+                                                        ),
+                                                ),
+                                              ),
+                                              DataCell(
+                                                Text(
+                                                  incident.vehicleCode ??
+                                                      'Sin unidad',
+                                                ),
+                                              ),
+                                              DataCell(
+                                                Text(
+                                                  incident.driverName ??
+                                                      'Sin conductor',
+                                                ),
+                                              ),
+                                              DataCell(Text(incident.type)),
+                                              DataCell(
+                                                SizedBox(
+                                                  width: 260,
+                                                  child: Text(
+                                                    incident.description ??
+                                                        'Sin descripción',
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              ),
+                                              DataCell(
+                                                StatusBadge(
+                                                  status: incident.status,
+                                                ),
+                                              ),
+                                              DataCell(
+                                                FilledButton.tonal(
+                                                  onPressed: () =>
+                                                      _openDetail(incident),
+                                                  child: const Text(
+                                                    'Abrir detalle',
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
                                           ),
-                                        ),
-                                      ),
-                                      DataCell(
-                                        Text(
-                                          incident.vehicleCode ?? 'Sin unidad',
-                                        ),
-                                      ),
-                                      DataCell(
-                                        Text(
-                                          incident.driverName ??
-                                              'Sin conductor',
-                                        ),
-                                      ),
-                                      DataCell(Text(incident.type)),
-                                      DataCell(
-                                        SizedBox(
-                                          width: 260,
-                                          child: Text(
-                                            incident.description ??
-                                                'Sin descripción',
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ),
-                                      DataCell(
-                                        StatusBadge(status: incident.status),
-                                      ),
-                                      DataCell(
-                                        FilledButton.tonal(
-                                          onPressed: () =>
-                                              _openDetail(incident),
-                                          child: const Text('Abrir detalle'),
-                                        ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
-                              ],
-                            ),
-                          ),
+                                ),
                         ),
                       ),
                       PagedTableFooter<Incident>(
@@ -204,7 +275,7 @@ class _IncidentDetailDialogState extends ConsumerState<IncidentDetailDialog> {
   Widget build(BuildContext context) => AlertDialog(
     title: Text('Incidencia: ${widget.incident.type}'),
     content: SizedBox(
-      width: 600,
+      width: responsiveDialogWidth(context, 600),
       child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -220,9 +291,11 @@ class _IncidentDetailDialogState extends ConsumerState<IncidentDetailDialog> {
             ),
             _DetailRow(
               label: 'Fecha',
-              value: DateFormat(
-                'dd/MM/yyyy HH:mm',
-              ).format(widget.incident.createdAt.toLocal()),
+              value: widget.incident.createdAt == null
+                  ? 'Fecha no disponible'
+                  : DateFormat(
+                      'dd/MM/yyyy HH:mm',
+                    ).format(widget.incident.createdAt!.toLocal()),
             ),
             const SizedBox(height: 8),
             Text(
@@ -231,6 +304,7 @@ class _IncidentDetailDialogState extends ConsumerState<IncidentDetailDialog> {
             ),
             const Divider(height: 28),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _status,
               decoration: const InputDecoration(labelText: 'Estado'),
               items: const [

@@ -6,6 +6,7 @@ abstract interface class AuthRepository {
   Future<void> signOut();
   Future<AdminProfile?> currentAdmin();
   Future<MfaGate> mfaRequirement({required bool forceEnrollment});
+  bool get hasAal2;
   Future<MfaEnrollment> enrollMfa();
   Future<void> verifyMfa({required String factorId, required String code});
   Future<String?> verifiedTotpFactorId();
@@ -37,17 +38,40 @@ abstract interface class DashboardRepository {
   Future<DashboardMetrics> getMetrics();
 }
 
+enum RealtimeConnectionStatus {
+  reconnecting,
+  connected,
+  timeout,
+  error,
+  closed,
+}
+
+class LocationMonitorEvent {
+  const LocationMonitorEvent({
+    this.ids = const {},
+    this.status = RealtimeConnectionStatus.reconnecting,
+    this.refreshAll = false,
+  });
+
+  final Set<String> ids;
+  final RealtimeConnectionStatus status;
+  final bool refreshAll;
+}
+
 abstract interface class VehicleRepository {
   Future<PagedResult<Vehicle>> getVehicles({
     required int page,
     required int pageSize,
     String search,
     String? status,
+    String? availableForDriverId,
     String sortBy = 'code',
     bool ascending = true,
   });
   Future<List<Vehicle>> getMonitoredVehicles();
-  Stream<Set<String>> watchLocations();
+  Future<List<Vehicle>> getMonitoredVehiclesByIds(Set<String> ids);
+  Stream<LocationMonitorEvent> watchLocations();
+  Future<int> markStaleVehiclesNoSignal();
   Future<void> saveVehicle({
     String? id,
     required String code,

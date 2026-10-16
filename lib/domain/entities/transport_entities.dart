@@ -36,6 +36,14 @@ class VehicleLocation {
   final DateTime updatedAt;
 }
 
+enum VehicleSignalState {
+  recent,
+  delayed,
+  noSignal,
+  recoveredPendingStatus,
+  invalidData,
+}
+
 class Vehicle {
   const Vehicle({
     required this.id,
@@ -48,18 +56,37 @@ class Vehicle {
     this.driverId,
     this.driverName,
     this.location,
+    this.invalidLocationData = false,
   });
 
   final String id;
   final String code;
   final String plate;
   final String status;
-  final DateTime createdAt;
+  final DateTime? createdAt;
   final String? routeId;
   final String? routeName;
   final String? driverId;
   final String? driverName;
   final VehicleLocation? location;
+  final bool invalidLocationData;
+
+  VehicleSignalState signalState(DateTime now) {
+    if (invalidLocationData) return VehicleSignalState.invalidData;
+    final point = location;
+    if (point == null) return VehicleSignalState.noSignal;
+    if (point.updatedAt.isAfter(now.add(const Duration(minutes: 5)))) {
+      return VehicleSignalState.invalidData;
+    }
+    final age = now.difference(point.updatedAt);
+    final fresh = age < const Duration(minutes: 2);
+    if (status == 'no_signal') {
+      return fresh
+          ? VehicleSignalState.recoveredPendingStatus
+          : VehicleSignalState.noSignal;
+    }
+    return fresh ? VehicleSignalState.recent : VehicleSignalState.delayed;
+  }
 }
 
 class RouteStop {
@@ -93,6 +120,7 @@ class TransportRoute {
     required this.createdAt,
     this.stops = const [],
     this.vehicleCount = 0,
+    this.invalidStopCount = 0,
   });
 
   final String id;
@@ -101,9 +129,10 @@ class TransportRoute {
   final String destination;
   final String color;
   final bool active;
-  final DateTime createdAt;
+  final DateTime? createdAt;
   final List<RouteStop> stops;
   final int vehicleCount;
+  final int invalidStopCount;
 
   double get maximumFare => stops.fold<double>(
     0,
@@ -132,7 +161,7 @@ class Driver {
   final String email;
   final String? licenseNumber;
   final String status;
-  final DateTime createdAt;
+  final DateTime? createdAt;
   final String? vehicleId;
   final String? vehicleCode;
   final String? routeName;
@@ -159,7 +188,7 @@ class Incident {
   final String type;
   final String? description;
   final String status;
-  final DateTime createdAt;
+  final DateTime? createdAt;
   final String? vehicleId;
   final String? vehicleCode;
   final String? driverId;
@@ -183,7 +212,7 @@ class Trip {
 
   final String id;
   final String status;
-  final DateTime createdAt;
+  final DateTime? createdAt;
   final String? vehicleCode;
   final String? routeName;
   final String? driverName;

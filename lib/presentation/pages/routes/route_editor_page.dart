@@ -11,6 +11,20 @@ import '../../widgets/common_widgets.dart';
 import '../../widgets/transport_map.dart';
 import 'routes_page.dart';
 
+List<T> reorderItems<T>(List<T> source, int oldIndex, int newIndex) {
+  final items = [...source];
+  final item = items.removeAt(oldIndex);
+  items.insert(newIndex, item);
+  return items;
+}
+
+int nextStopOrder(Iterable<RouteStop> stops) =>
+    stops.fold<int>(
+      0,
+      (highest, stop) => stop.order > highest ? stop.order : highest,
+    ) +
+    1;
+
 class RouteEditorPage extends ConsumerStatefulWidget {
   const RouteEditorPage({super.key, required this.routeId});
   final String routeId;
@@ -22,6 +36,12 @@ class RouteEditorPage extends ConsumerStatefulWidget {
 class _RouteEditorPageState extends ConsumerState<RouteEditorPage> {
   final _mapController = MapController();
 
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
   void _refresh() {
     ref.invalidate(routeProvider(widget.routeId));
     ref.invalidate(routesProvider);
@@ -31,7 +51,7 @@ class _RouteEditorPageState extends ConsumerState<RouteEditorPage> {
   Widget build(BuildContext context) {
     final route = ref.watch(routeProvider(widget.routeId));
     return Padding(
-      padding: const EdgeInsets.all(20),
+      padding: responsivePagePadding(context),
       child: route.when(
         loading: () => const LoadingPanel(),
         error: (error, _) => ErrorPanel(error: error, onRetry: _refresh),
@@ -106,16 +126,21 @@ class _RouteEditorPageState extends ConsumerState<RouteEditorPage> {
         ),
         Positioned(
           left: 12,
+          right: 76,
           top: 12,
           child: Card(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
+              child: const Row(
+                children: [
                   Icon(Icons.touch_app_outlined, size: 18),
                   SizedBox(width: 6),
-                  Text('Haz clic en el mapa para agregar una parada'),
+                  Expanded(
+                    child: Text(
+                      'Haz clic en el mapa para agregar una parada',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -134,6 +159,13 @@ class _RouteEditorPageState extends ConsumerState<RouteEditorPage> {
           Text('Paradas', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 4),
           Text('${route.stops.length} registradas · arrastra para reordenar'),
+          if (route.invalidStopCount > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${route.invalidStopCount} parada(s) no se muestran por coordenadas inválidas.',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
           const Divider(height: 22),
           Expanded(
             child: route.stops.isEmpty
@@ -215,7 +247,7 @@ class _RouteEditorPageState extends ConsumerState<RouteEditorPage> {
       barrierDismissible: false,
       builder: (context) => StopFormDialog(
         routeId: route.id,
-        nextOrder: route.stops.length + 1,
+        nextOrder: nextStopOrder(route.stops),
         stop: stop,
         coordinate: coordinate,
       ),
@@ -248,9 +280,7 @@ class _RouteEditorPageState extends ConsumerState<RouteEditorPage> {
     int oldIndex,
     int newIndex,
   ) async {
-    final stops = [...source];
-    final item = stops.removeAt(oldIndex);
-    stops.insert(newIndex, item);
+    final stops = reorderItems(source, oldIndex, newIndex);
     try {
       await ref.read(routeRepositoryProvider).reorderStops(stops);
       _refresh();
@@ -314,7 +344,7 @@ class _StopFormDialogState extends ConsumerState<StopFormDialog> {
   Widget build(BuildContext context) => AlertDialog(
     title: Text(widget.stop == null ? 'Nueva parada' : 'Editar parada'),
     content: SizedBox(
-      width: 520,
+      width: responsiveDialogWidth(context, 520),
       child: Form(
         key: _formKey,
         child: SingleChildScrollView(

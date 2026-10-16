@@ -20,22 +20,30 @@ class _FakeAuthRepository implements AuthRepository {
 }
 
 void main() {
-  test('AuthorizeAdminUseCase rechaza roles no administrativos', () async {
-    final repository = _FakeAuthRepository(
-      const AdminProfile(
-        id: 'user-1',
-        fullName: 'Usuario',
-        email: 'user@example.com',
-        role: 'user',
-      ),
-      const MfaGate(MfaRequirement.none),
-    );
+  for (final role in ['user', 'driver']) {
+    test('AuthorizeAdminUseCase rechaza el rol $role', () async {
+      final repository = _FakeAuthRepository(
+        AdminProfile(
+          id: '$role-1',
+          fullName: 'Sin acceso',
+          email: '$role@example.com',
+          role: role,
+        ),
+        const MfaGate(MfaRequirement.none),
+      );
 
-    expect(
-      () => AuthorizeAdminUseCase(repository)(requireMfa: true),
-      throwsA(isA<AppException>()),
-    );
-  });
+      expect(
+        () => AuthorizeAdminUseCase(repository)(requireMfa: true),
+        throwsA(
+          isA<AppException>().having(
+            (error) => error.code,
+            'code',
+            'not_admin',
+          ),
+        ),
+      );
+    });
+  }
 
   test('AuthorizeAdminUseCase conserva el gate MFA', () async {
     final repository = _FakeAuthRepository(

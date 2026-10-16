@@ -8,14 +8,28 @@ import '../../../domain/repositories/repositories.dart';
 import '../../controllers/providers.dart';
 import '../../widgets/common_widgets.dart';
 
-class SettingsPage extends ConsumerWidget {
+class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends ConsumerState<SettingsPage> {
+  late final Future<PackageInfo> _packageInfo;
+
+  @override
+  void initState() {
+    super.initState();
+    _packageInfo = PackageInfo.fromPlatform();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = ref.watch(themeModeProvider);
+    final totp = ref.watch(verifiedTotpProvider);
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: responsivePagePadding(context),
       children: [
         const PageIntro(
           title: 'Configuración',
@@ -33,28 +47,58 @@ class SettingsPage extends ConsumerWidget {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 12),
-                SegmentedButton<ThemeMode>(
-                  segments: const [
-                    ButtonSegment(
-                      value: ThemeMode.system,
-                      icon: Icon(Icons.computer),
-                      label: Text('Sistema'),
-                    ),
-                    ButtonSegment(
-                      value: ThemeMode.light,
-                      icon: Icon(Icons.light_mode),
-                      label: Text('Claro'),
-                    ),
-                    ButtonSegment(
-                      value: ThemeMode.dark,
-                      icon: Icon(Icons.dark_mode),
-                      label: Text('Oscuro'),
-                    ),
-                  ],
-                  selected: {theme},
-                  onSelectionChanged: (selection) => ref
-                      .read(themeModeProvider.notifier)
-                      .setMode(selection.first),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    if (constraints.maxWidth < 440) {
+                      return DropdownButtonFormField<ThemeMode>(
+                        isExpanded: true,
+                        initialValue: theme,
+                        decoration: const InputDecoration(labelText: 'Tema'),
+                        items: const [
+                          DropdownMenuItem(
+                            value: ThemeMode.system,
+                            child: Text('Sistema'),
+                          ),
+                          DropdownMenuItem(
+                            value: ThemeMode.light,
+                            child: Text('Claro'),
+                          ),
+                          DropdownMenuItem(
+                            value: ThemeMode.dark,
+                            child: Text('Oscuro'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            ref.read(themeModeProvider.notifier).setMode(value);
+                          }
+                        },
+                      );
+                    }
+                    return SegmentedButton<ThemeMode>(
+                      segments: const [
+                        ButtonSegment(
+                          value: ThemeMode.system,
+                          icon: Icon(Icons.computer),
+                          label: Text('Sistema'),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.light,
+                          icon: Icon(Icons.light_mode),
+                          label: Text('Claro'),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.dark,
+                          icon: Icon(Icons.dark_mode),
+                          label: Text('Oscuro'),
+                        ),
+                      ],
+                      selected: {theme},
+                      onSelectionChanged: (selection) => ref
+                          .read(themeModeProvider.notifier)
+                          .setMode(selection.first),
+                    );
+                  },
                 ),
               ],
             ),
@@ -64,43 +108,75 @@ class SettingsPage extends ConsumerWidget {
         Card(
           child: Padding(
             padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                const Icon(Icons.security, size: 38),
-                const SizedBox(width: 16),
-                const Expanded(
-                  child: Column(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final description = const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Autenticación en dos pasos',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'Agrega un factor TOTP oficial de Supabase a tu cuenta.',
+                    ),
+                  ],
+                );
+                final button = totp.when(
+                  loading: () => const Text('Comprobando MFA…'),
+                  error: (_, _) => TextButton.icon(
+                    onPressed: () => ref.invalidate(verifiedTotpProvider),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Reintentar MFA'),
+                  ),
+                  data: (factorId) => factorId == null
+                      ? FilledButton.tonal(
+                          onPressed: () async {
+                            await showDialog<void>(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (context) => const MfaEnrollmentDialog(),
+                            );
+                            ref.invalidate(verifiedTotpProvider);
+                          },
+                          child: const Text('Configurar MFA'),
+                        )
+                      : const Chip(
+                          avatar: Icon(Icons.verified_user_outlined),
+                          label: Text('MFA configurado'),
+                        ),
+                );
+                if (constraints.maxWidth < 560) {
+                  return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Autenticación en dos pasos',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        'Agrega un factor TOTP oficial de Supabase a tu cuenta.',
-                      ),
+                      const Icon(Icons.security, size: 38),
+                      const SizedBox(height: 12),
+                      description,
+                      const SizedBox(height: 16),
+                      button,
                     ],
-                  ),
-                ),
-                FilledButton.tonal(
-                  onPressed: () => showDialog<void>(
-                    context: context,
-                    barrierDismissible: false,
-                    builder: (context) => const MfaEnrollmentDialog(),
-                  ),
-                  child: const Text('Configurar MFA'),
-                ),
-              ],
+                  );
+                }
+                return Row(
+                  children: [
+                    const Icon(Icons.security, size: 38),
+                    const SizedBox(width: 16),
+                    Expanded(child: description),
+                    button,
+                  ],
+                );
+              },
             ),
           ),
         ),
         const SizedBox(height: 14),
         Card(
           child: FutureBuilder<PackageInfo>(
-            future: PackageInfo.fromPlatform(),
+            future: _packageInfo,
             builder: (context, snapshot) => ListTile(
               contentPadding: const EdgeInsets.all(20),
               leading: const Icon(Icons.info_outline, size: 38),
@@ -164,11 +240,15 @@ class _MfaEnrollmentDialogState extends ConsumerState<MfaEnrollmentDialog> {
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('Configurar autenticación TOTP'),
     content: SizedBox(
-      width: 480,
+      width: responsiveDialogWidth(context, 480),
       child: _busy
           ? const SizedBox(height: 260, child: LoadingPanel())
-          : _error != null
-          ? Text(userFriendlyError(_error!))
+          : _enrollment == null
+          ? Text(
+              userFriendlyError(
+                _error ?? const AppException('No fue posible iniciar MFA.'),
+              ),
+            )
           : SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -207,6 +287,15 @@ class _MfaEnrollmentDialogState extends ConsumerState<MfaEnrollmentDialog> {
                       counterText: '',
                     ),
                   ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      userFriendlyError(_error!),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -240,6 +329,7 @@ class _MfaEnrollmentDialogState extends ConsumerState<MfaEnrollmentDialog> {
           .read(authRepositoryProvider)
           .verifyMfa(factorId: _enrollment!.factorId, code: _code.text);
       if (mounted) {
+        ref.invalidate(verifiedTotpProvider);
         Navigator.pop(context);
         showOperationSuccess(context, 'MFA activado correctamente.');
       }

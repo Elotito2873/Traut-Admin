@@ -17,3 +17,8 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze
       - run: flutter test
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.7
+      - run: deno check supabase/functions/invite-driver/index.ts
+      - run: deno test supabase/functions/invite-driver/index_test.ts

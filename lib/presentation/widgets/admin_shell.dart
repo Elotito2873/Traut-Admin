@@ -60,7 +60,9 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     final selected = _selectedIndex(path);
     final title = _items[selected].label;
     final wide = MediaQuery.sizeOf(context).width >= 980;
-    final searchVisible = MediaQuery.sizeOf(context).width >= 720;
+    final availableWidth =
+        MediaQuery.sizeOf(context).width - (wide ? (_expanded ? 264 : 82) : 0);
+    final searchVisible = availableWidth >= 760;
     return Scaffold(
       drawer: wide
           ? null
@@ -144,7 +146,26 @@ class _AdminShellState extends ConsumerState<AdminShell> {
                       ],
                     ),
                   ),
-                  Expanded(child: widget.child),
+                  Expanded(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      reverseDuration: const Duration(milliseconds: 120),
+                      transitionBuilder: (child, animation) => FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0.012, 0),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        ),
+                      ),
+                      child: KeyedSubtree(
+                        key: ValueKey(path),
+                        child: widget.child,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -230,21 +251,24 @@ class _Sidebar extends ConsumerWidget {
                   padding: const EdgeInsets.only(bottom: 5),
                   child: Tooltip(
                     message: expanded ? '' : item.label,
-                    child: ListTile(
-                      minTileHeight: 50,
-                      selected: selected == index,
-                      selectedTileColor: Theme.of(
-                        context,
-                      ).colorScheme.primaryContainer,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: ListTile(
+                        minTileHeight: 50,
+                        selected: selected == index,
+                        selectedTileColor: Theme.of(
+                          context,
+                        ).colorScheme.primaryContainer,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: expanded ? 14 : 18,
+                        ),
+                        leading: Icon(item.icon),
+                        title: expanded ? Text(item.label) : null,
+                        onTap: () => onSelect(index),
                       ),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: expanded ? 14 : 18,
-                      ),
-                      leading: Icon(item.icon),
-                      title: expanded ? Text(item.label) : null,
-                      onTap: () => onSelect(index),
                     ),
                   ),
                 );

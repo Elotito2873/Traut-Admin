@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/errors/app_exception.dart';
 import '../../domain/entities/transport_entities.dart';
 import '../controllers/providers.dart';
 
@@ -17,30 +18,58 @@ class GlobalSearchField extends ConsumerStatefulWidget {
 class _GlobalSearchFieldState extends ConsumerState<GlobalSearchField> {
   Timer? _debounce;
   List<GlobalSearchResult> _results = const [];
+  String _resultsQuery = '';
   bool _loading = false;
+  String? _error;
+  int _requestId = 0;
 
   @override
   void dispose() {
+    _requestId++;
     _debounce?.cancel();
     super.dispose();
   }
 
   void _search(String value) {
     _debounce?.cancel();
-    if (value.trim().length < 2) {
+    final requestId = ++_requestId;
+    final query = value.trim();
+    if (query.length < 2) {
       setState(() {
         _results = const [];
+        _resultsQuery = '';
         _loading = false;
+        _error = null;
       });
       return;
     }
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+      _results = const [];
+      _resultsQuery = '';
+    });
     _debounce = Timer(const Duration(milliseconds: 400), () async {
       try {
-        final results = await ref.read(searchRepositoryProvider).search(value);
-        if (mounted) setState(() => _results = results);
+        final results = await ref.read(searchRepositoryProvider).search(query);
+        if (mounted && requestId == _requestId) {
+          setState(() {
+            _results = results;
+            _resultsQuery = query;
+          });
+        }
+      } catch (error) {
+        if (mounted && requestId == _requestId) {
+          setState(() {
+            _results = const [];
+            _resultsQuery = '';
+            _error = userFriendlyError(error);
+          });
+        }
       } finally {
-        if (mounted) setState(() => _loading = false);
+        if (mounted && requestId == _requestId) {
+          setState(() => _loading = false);
+        }
       }
     });
   }
@@ -51,7 +80,10 @@ class _GlobalSearchFieldState extends ConsumerState<GlobalSearchField> {
       width: 360,
       child: Autocomplete<GlobalSearchResult>(
         displayStringForOption: (option) => option.title,
-        optionsBuilder: (_) => _results,
+        optionsBuilder: (value) =>
+            value.text.trim() == _resultsQuery && _resultsQuery.isNotEmpty
+            ? _results
+            : const [],
         onSelected: (result) => context.go(result.location),
         fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) =>
             TextField(
@@ -70,7 +102,15 @@ class _GlobalSearchFieldState extends ConsumerState<GlobalSearchField> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
                       )
-                    : null,
+                    : _error == null
+                    ? null
+                    : Tooltip(
+                        message: _error!,
+                        child: Icon(
+                          Icons.error_outline,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
               ),
             ),
         optionsViewBuilder: (context, onSelected, options) => Align(

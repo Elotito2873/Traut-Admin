@@ -38,11 +38,15 @@ Completa únicamente `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`. El archivo
 `config/dev.json` está ignorado por Git. Nunca uses una secret key, `service_role`,
 contraseña de Postgres ni Client Secret.
 
-`REQUIRE_ADMIN_MFA` controla el gate de enrolamiento del cliente. Para imponer
-MFA también en la base, revisa la propuesta `004_require_admin_aal2.sql`.
+`REQUIRE_ADMIN_MFA` controla el gate de enrolamiento del cliente y debe ser
+`true` en releases. Los RPC administrativos de 006 ya exigen AAL2;
+`004_require_admin_aal2.sql` sigue pendiente y no debe aplicarse hasta verificar
+que un administrador real completó TOTP y obtuvo `aal2`.
 `ADMIN_INACTIVITY_TIMEOUT_MINUTES` controla el lock local (20 minutos por
 defecto). Con TOTP, conserva formularios y exige un nuevo challenge; sin TOTP
 cierra la sesión y exige reautenticación.
+La sesión no se persiste en disco: al reiniciar se inicia sesión y se comprueba
+de nuevo `profiles.role`.
 
 ## Ejecutar
 
@@ -67,6 +71,7 @@ flutter pub get
 dart format --output=none --set-exit-if-changed .
 flutter analyze
 flutter test
+deno check supabase/functions/invite-driver/index.ts
 
 flutter build linux --release --dart-define-from-file=config/dev.json
 flutter build web --release --dart-define-from-file=config/dev.json
@@ -83,22 +88,35 @@ interno no debe distribuirse aislado.
 
 ## Supabase
 
-No ejecutes `supabase db push` desde este repositorio. Revisa los SQL propuestos,
-incorpóralos a la historia canónica de migraciones de Traut y aplícalos desde ese
-repositorio. Consulta [docs/DATABASE.md](docs/DATABASE.md) y
+No ejecutes `supabase db push` desde este repositorio. Las propuestas
+001/002/003/006/007/008/005 ya fueron incorporadas al historial canónico de
+`J4v4HK/Komport` y aplicadas al proyecto compartido según el contexto del
+proyecto; 004 continúa pendiente. Consulta [docs/DATABASE.md](docs/DATABASE.md) y
 [docs/SECURITY.md](docs/SECURITY.md).
 
-La invitación de conductores requiere desplegar manualmente `invite-driver` luego
-de aplicar RLS, auditoría y el default UUID de `drivers`:
+El código de `invite-driver` está en este repo, pero su despliegue y configuración
+actuales no se han comprobado. Antes de habilitar su uso, configura manualmente
+en Supabase `DRIVER_INVITE_REDIRECT_URL` con el callback HTTPS real de Traut
+Conductor y `ADMIN_ALLOWED_ORIGINS` con los orígenes Web Admin exactos separados
+por comas; configura la allowlist de redirect de Auth y despliega la función desde
+un entorno autorizado. No uses un dominio de ejemplo como URL operativa.
 
-```bash
-supabase secrets set \
-  DRIVER_INVITE_REDIRECT_URL=https://conductor.example.com/auth/accept-invite
-supabase functions deploy invite-driver
-```
+Una invitación enviada por correo no puede des-enviarse si falla una escritura
+posterior. La función intenta rollback de registros y admite reparar perfiles
+de conductor incompletos; comprueba el estado antes de reintentar.
 
 La redirección corresponde a Traut Conductor. Supabase administra las secret
 keys del entorno de Functions. No las copies a este repositorio.
+
+La detección de unidades sin señal es manual desde Monitoreo; no existe un
+scheduler. Las mutaciones no se encolan offline ni se reenvían al reconectar.
+Tras un timeout de escritura, verifica el registro antes de reintentar.
+
+La recuperación de contraseña administrativa no se ofrece todavía: faltan una
+URL HTTPS de callback propia del frontend Web Admin, su allowlist en Supabase
+Auth y un flujo probado de cambio y reautorización. En desktop se usaría ese
+frontend Web y luego se iniciaría sesión de nuevo; no se simula un envío sin
+destino válido.
 
 ## Arquitectura
 

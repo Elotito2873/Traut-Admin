@@ -1,10 +1,5 @@
 import { withSupabase } from 'npm:@supabase/server@1.9.2'
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
+import { allowedOrigin, withCors } from './cors.ts'
 
 type InviteBody = {
   email?: unknown
@@ -13,7 +8,7 @@ type InviteBody = {
 }
 
 function response(status: number, payload: Record<string, unknown>) {
-  return Response.json(payload, { status, headers: corsHeaders })
+  return Response.json(payload, { status })
 }
 
 function driverRedirectUrl(): string | null {
@@ -29,7 +24,7 @@ function driverRedirectUrl(): string | null {
   }
 }
 
-const authenticatedFetch = withSupabase({ auth: 'user' }, async (req, ctx) => {
+const authenticatedFetch = withSupabase({ auth: 'user', cors: 'disabled' }, async (req, ctx) => {
   if (req.method !== 'POST') return response(405, { message: 'Método no permitido.' })
 
   const claims = ctx.userClaims as { id?: string; sub?: string } | undefined
@@ -63,7 +58,15 @@ const authenticatedFetch = withSupabase({ auth: 'user' }, async (req, ctx) => {
 
   let body: InviteBody
   try {
-    body = (await req.json()) as InviteBody
+    const declaredLength = Number(req.headers.get('content-length') ?? '0')
+    if (declaredLength > 4096) return response(413, { message: 'Solicitud demasiado grande.' })
+    const raw = await req.text()
+    if (raw.length > 4096) return response(413, { message: 'Solicitud demasiado grande.' })
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return response(400, { message: 'Solicitud JSON no válida.' })
+    }
+    body = parsed as InviteBody
   } catch {
     return response(400, { message: 'Solicitud JSON no válida.' })
   }
@@ -75,7 +78,12 @@ const authenticatedFetch = withSupabase({ auth: 'user' }, async (req, ctx) => {
       ? body.license_number.trim()
       : null
 
-  if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/) || fullName.length < 2) {
+  if (
+    email.length > 254 ||
+    fullName.length < 2 || fullName.length > 120 ||
+    (license?.length ?? 0) > 80 ||
+    !email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)
+  ) {
     return response(422, { message: 'Nombre o correo no válidos.' })
   }
 
@@ -206,9 +214,19 @@ const authenticatedFetch = withSupabase({ auth: 'user' }, async (req, ctx) => {
 })
 
 export default {
-  fetch(req: Request) {
+  async fetch(req: Request) {
+    const configuredOrigins = Deno.env.get('ADMIN_ALLOWED_ORIGINS') ?? ''
+    if (req.headers.has('origin') && !allowedOrigin(req, configuredOrigins)) {
+      return response(403, { message: 'Origen no autorizado.' })
+    }
     // El preflight no tiene JWT y debe resolverse antes del middleware Auth.
-    if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
-    return authenticatedFetch(req)
+    if (req.method === 'OPTIONS') {
+      return withCors(
+        req,
+        new Response(null, { status: 204 }),
+        configuredOrigins,
+      )
+    }
+    return withCors(req, await authenticatedFetch(req), configuredOrigins)
   },
 }

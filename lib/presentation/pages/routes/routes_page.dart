@@ -31,7 +31,7 @@ class _RoutesPageState extends ConsumerState<RoutesPage> {
   Widget build(BuildContext context) {
     final routes = ref.watch(routesProvider(_search));
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: responsivePagePadding(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -48,7 +48,7 @@ class _RoutesPageState extends ConsumerState<RoutesPage> {
           ),
           const SizedBox(height: 18),
           SizedBox(
-            width: 380,
+            width: responsiveFieldWidth(context, 380),
             child: TextField(
               decoration: const InputDecoration(
                 labelText: 'Buscar ruta, origen o destino',
@@ -219,15 +219,16 @@ class _RouteCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 6,
+              runSpacing: 6,
               children: [
                 TextButton.icon(
                   onPressed: onEdit,
                   icon: const Icon(Icons.edit_outlined),
                   label: const Text('Editar'),
                 ),
-                const SizedBox(width: 6),
                 FilledButton.tonalIcon(
                   onPressed: onOpen,
                   icon: const Icon(Icons.route),
@@ -293,7 +294,7 @@ class _RouteFormDialogState extends ConsumerState<RouteFormDialog> {
   Widget build(BuildContext context) => AlertDialog(
     title: Text(widget.route == null ? 'Nueva ruta' : 'Editar ruta'),
     content: SizedBox(
-      width: 520,
+      width: responsiveDialogWidth(context, 520),
       child: Form(
         key: _formKey,
         child: SingleChildScrollView(

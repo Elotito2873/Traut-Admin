@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -14,10 +16,13 @@ class InactivityGuard extends ConsumerStatefulWidget {
   ConsumerState<InactivityGuard> createState() => _InactivityGuardState();
 }
 
-class _InactivityGuardState extends ConsumerState<InactivityGuard> {
+class _InactivityGuardState extends ConsumerState<InactivityGuard>
+    with WidgetsBindingObserver {
   late final InactivityTimer _timer;
   final _code = TextEditingController();
+  final _hoverThrottle = Stopwatch();
   AuthStage? _lastStage;
+  DateTime _lastActivity = DateTime.now();
 
   @override
   void initState() {
@@ -28,10 +33,13 @@ class _InactivityGuardState extends ConsumerState<InactivityGuard> {
         ref.read(authControllerProvider.notifier).lockForInactivity();
       },
     );
+    _hoverThrottle.start();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer.dispose();
     _code.dispose();
     super.dispose();
@@ -42,15 +50,39 @@ class _InactivityGuardState extends ConsumerState<InactivityGuard> {
     _lastStage = stage;
     if (stage == AuthStage.authenticated) {
       _code.clear();
+      _lastActivity = DateTime.now();
       _timer.start();
     } else {
       _timer.stop();
     }
   }
 
-  void _activity() {
+  void _activity({bool throttle = false}) {
+    if (throttle && _hoverThrottle.elapsed < const Duration(seconds: 1)) {
+      return;
+    }
+    if (throttle) _hoverThrottle.reset();
     if (ref.read(authControllerProvider).stage == AuthStage.authenticated) {
+      _lastActivity = DateTime.now();
       _timer.registerActivity();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    unawaited(_resumeSession());
+  }
+
+  Future<void> _resumeSession() async {
+    if (ref.read(authControllerProvider).stage == AuthStage.authenticated &&
+        DateTime.now().difference(_lastActivity) >=
+            ref.read(appConfigProvider).inactivityTimeout) {
+      _timer.stop();
+      await ref.read(authControllerProvider.notifier).lockForInactivity();
+    }
+    if (mounted) {
+      await ref.read(authControllerProvider.notifier).revalidateOnResume();
     }
   }
 
@@ -61,6 +93,7 @@ class _InactivityGuardState extends ConsumerState<InactivityGuard> {
       if (mounted) _syncStage(auth.stage);
     });
     final locked = auth.stage == AuthStage.locked;
+    final blocked = locked || auth.checkingAccess;
     return Focus(
       autofocus: true,
       onKeyEvent: (_, _) {
@@ -68,14 +101,21 @@ class _InactivityGuardState extends ConsumerState<InactivityGuard> {
         return KeyEventResult.ignored;
       },
       child: MouseRegion(
-        onHover: (_) => _activity(),
+        onHover: (_) => _activity(throttle: true),
         child: Listener(
           behavior: HitTestBehavior.translucent,
           onPointerDown: (_) => _activity(),
           onPointerSignal: (_) => _activity(),
           child: Stack(
             children: [
-              AbsorbPointer(absorbing: locked, child: widget.child),
+              AbsorbPointer(absorbing: blocked, child: widget.child),
+              if (auth.checkingAccess)
+                const Positioned.fill(
+                  child: ColoredBox(
+                    color: Colors.black26,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                ),
               if (locked) ...[
                 const Positioned.fill(
                   child: ModalBarrier(
