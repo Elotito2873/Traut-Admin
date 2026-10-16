@@ -26,6 +26,7 @@ class AuthViewState {
     this.factorId,
     this.enrollment,
     this.error,
+    this.errorCode,
     this.busy = false,
     this.checkingAccess = false,
   });
@@ -37,12 +38,15 @@ class AuthViewState {
   final String? factorId;
   final MfaEnrollment? enrollment;
   final String? error;
+  final String? errorCode;
   final bool busy;
   final bool checkingAccess;
 
   AuthViewState copyWith({
     bool? busy,
     String? error,
+    String? errorCode,
+    bool clearError = false,
     MfaEnrollment? enrollment,
     bool? checkingAccess,
   }) {
@@ -51,7 +55,8 @@ class AuthViewState {
       profile: profile,
       factorId: factorId,
       enrollment: enrollment ?? this.enrollment,
-      error: error,
+      error: clearError ? null : error ?? this.error,
+      errorCode: clearError ? null : errorCode ?? this.errorCode,
       busy: busy ?? this.busy,
       checkingAccess: checkingAccess ?? this.checkingAccess,
     );
@@ -144,7 +149,6 @@ class AuthController extends Notifier<AuthViewState> {
   }
 
   Future<void> _authorize({
-    bool requireAal2 = false,
     bool preserveAdministrativeShell = false,
     bool keepLock = false,
   }) async {
@@ -155,9 +159,14 @@ class AuthController extends Notifier<AuthViewState> {
     try {
       AdminAccess access;
       try {
+        if (!ref.read(appConfigProvider).requireAdminMfa) {
+          throw const AppException(
+            'La configuración administrativa debe exigir MFA.',
+            code: 'invalid_config',
+          );
+        }
         access = await ref.read(authorizeAdminUseCaseProvider)(
-          requireMfa:
-              requireAal2 || ref.read(appConfigProvider).requireAdminMfa,
+          requireMfa: true,
         );
         if (!ref.mounted || generation != _generation) return;
       } on AppException catch (error) {
@@ -213,7 +222,7 @@ class AuthController extends Notifier<AuthViewState> {
   Future<void> beginEnrollment() async {
     if (state.enrollment != null || state.busy) return;
     final generation = _generation;
-    state = state.copyWith(busy: true);
+    state = state.copyWith(busy: true, clearError: true);
     try {
       final enrollment = await _repository.enrollMfa();
       if (!ref.mounted || generation != _generation) return;
@@ -226,19 +235,40 @@ class AuthController extends Notifier<AuthViewState> {
 
   Future<void> verifyMfa(String code) async {
     final factorId = state.factorId ?? state.enrollment?.factorId;
-    if (factorId == null) return;
-    state = state.copyWith(busy: true);
+    if (factorId == null || state.busy) return;
+    final preserveAdministrativeShell = state.stage == AuthStage.locked;
+    state = state.copyWith(busy: true, clearError: true);
     final generation = _generation;
     try {
       await _repository.verifyMfa(factorId: factorId, code: code);
       if (!ref.mounted || generation != _generation) return;
       await _authorize(
-        requireAal2: true,
-        preserveAdministrativeShell: state.stage == AuthStage.locked,
+        preserveAdministrativeShell: preserveAdministrativeShell,
       );
     } catch (error) {
       if (!ref.mounted || generation != _generation) return;
-      state = state.copyWith(busy: false, error: userFriendlyError(error));
+      final code = error is AppException ? error.code : null;
+      if (isLostMfaSessionErrorCode(code)) {
+        state = AuthViewState(
+          stage: AuthStage.unauthorized,
+          error: userFriendlyError(error),
+          errorCode: code,
+        );
+        try {
+          await _repository.signOut();
+        } catch (_) {
+          // La sesión ya no es utilizable y el acceso local queda cerrado.
+        }
+        if (!ref.mounted || generation != _generation) return;
+        _clearAdministrativeData();
+        state = _afterSignOut(error: userFriendlyError(error));
+        return;
+      }
+      state = state.copyWith(
+        busy: false,
+        error: userFriendlyError(error),
+        errorCode: code,
+      );
     }
   }
 

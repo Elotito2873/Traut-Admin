@@ -7,6 +7,7 @@ import 'package:traut_admin/presentation/controllers/auth_controller.dart';
 import 'package:traut_admin/presentation/controllers/providers.dart';
 import 'package:traut_admin/presentation/pages/auth/configuration_page.dart';
 import 'package:traut_admin/presentation/pages/auth/login_page.dart';
+import 'package:traut_admin/presentation/pages/auth/mfa_page.dart';
 import 'package:traut_admin/presentation/pages/dashboard/dashboard_page.dart';
 import 'package:traut_admin/presentation/pages/settings/settings_page.dart';
 import 'package:traut_admin/presentation/widgets/common_widgets.dart';
@@ -20,6 +21,24 @@ class _SignedOutAuthController extends AuthController {
 class _LightThemeController extends ThemeController {
   @override
   ThemeMode build() => ThemeMode.light;
+}
+
+class _RetryMfaAuthController extends AuthController {
+  @override
+  AuthViewState build() =>
+      const AuthViewState(stage: AuthStage.mfaChallenge, factorId: 'factor-1');
+
+  @override
+  Future<void> verifyMfa(String code) async {
+    if (state.busy) return;
+    state = state.copyWith(busy: true, clearError: true);
+    await Future<void>.delayed(Duration.zero);
+    state = state.copyWith(
+      busy: false,
+      error: 'Usa el código actual de tu autenticador e inténtalo nuevamente.',
+      errorCode: 'mfa_verification_failed',
+    );
+  }
 }
 
 void main() {
@@ -55,6 +74,32 @@ void main() {
     await tester.tap(find.text('¿Olvidaste tu contraseña?'));
     await tester.pumpAndSettle();
     expect(find.textContaining('callback HTTPS'), findsOneWidget);
+  });
+
+  testWidgets('MFA incorrecto limpia el código y devuelve el foco', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(_RetryMfaAuthController.new),
+        ],
+        child: const MaterialApp(home: MfaPage(enrollment: false)),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), '000000');
+    await tester.tap(find.text('Verificar y continuar'));
+    await tester.pumpAndSettle();
+
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.controller!.text, isEmpty);
+    expect(field.focusNode!.hasFocus, isTrue);
+    expect(
+      find.text(
+        'Usa el código actual de tu autenticador e inténtalo nuevamente.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('dashboard muestra métricas proporcionadas', (tester) async {

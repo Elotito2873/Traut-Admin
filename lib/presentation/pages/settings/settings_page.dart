@@ -204,6 +204,7 @@ class MfaEnrollmentDialog extends ConsumerStatefulWidget {
 
 class _MfaEnrollmentDialogState extends ConsumerState<MfaEnrollmentDialog> {
   final _code = TextEditingController();
+  final _codeFocus = FocusNode();
   MfaEnrollment? _enrollment;
   Object? _error;
   bool _busy = true;
@@ -232,6 +233,7 @@ class _MfaEnrollmentDialogState extends ConsumerState<MfaEnrollmentDialog> {
 
   @override
   void dispose() {
+    _codeFocus.dispose();
     _code.dispose();
     super.dispose();
   }
@@ -279,6 +281,7 @@ class _MfaEnrollmentDialogState extends ConsumerState<MfaEnrollmentDialog> {
                   const SizedBox(height: 16),
                   TextField(
                     controller: _code,
+                    focusNode: _codeFocus,
                     maxLength: 6,
                     keyboardType: TextInputType.number,
                     textAlign: TextAlign.center,
@@ -286,6 +289,7 @@ class _MfaEnrollmentDialogState extends ConsumerState<MfaEnrollmentDialog> {
                       labelText: 'Código de verificación',
                       counterText: '',
                     ),
+                    onSubmitted: (_) => _verify(),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 8),
@@ -314,6 +318,7 @@ class _MfaEnrollmentDialogState extends ConsumerState<MfaEnrollmentDialog> {
   );
 
   Future<void> _verify() async {
+    if (_busy) return;
     if (!RegExp(r'^\d{6}$').hasMatch(_code.text.trim())) {
       setState(
         () => _error = const AppException('Escribe un código de 6 dígitos.'),
@@ -334,7 +339,16 @@ class _MfaEnrollmentDialogState extends ConsumerState<MfaEnrollmentDialog> {
         showOperationSuccess(context, 'MFA activado correctamente.');
       }
     } catch (error) {
-      if (mounted) setState(() => _error = error);
+      if (mounted) {
+        setState(() => _error = error);
+        final code = error is AppException ? error.code : null;
+        if (isRetryableMfaErrorCode(code)) {
+          _code.clear();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _codeFocus.requestFocus();
+          });
+        }
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

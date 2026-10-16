@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../../core/errors/app_exception.dart';
 import '../../controllers/auth_controller.dart';
 
 class MfaPage extends ConsumerStatefulWidget {
@@ -14,6 +15,7 @@ class MfaPage extends ConsumerStatefulWidget {
 
 class _MfaPageState extends ConsumerState<MfaPage> {
   final _code = TextEditingController();
+  final _codeFocus = FocusNode();
 
   @override
   void initState() {
@@ -27,6 +29,7 @@ class _MfaPageState extends ConsumerState<MfaPage> {
 
   @override
   void dispose() {
+    _codeFocus.dispose();
     _code.dispose();
     super.dispose();
   }
@@ -39,6 +42,17 @@ class _MfaPageState extends ConsumerState<MfaPage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(authControllerProvider);
+    ref.listen<AuthViewState>(authControllerProvider, (previous, next) {
+      if (previous?.busy == true &&
+          !next.busy &&
+          next.error != null &&
+          isRetryableMfaErrorCode(next.errorCode)) {
+        _code.clear();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _codeFocus.requestFocus();
+        });
+      }
+    });
     final enrollment = state.enrollment;
     return Scaffold(
       body: SafeArea(
@@ -106,6 +120,7 @@ class _MfaPageState extends ConsumerState<MfaPage> {
                       const SizedBox(height: 24),
                       TextField(
                         controller: _code,
+                        focusNode: _codeFocus,
                         autofocus: !widget.enrollment,
                         keyboardType: TextInputType.number,
                         maxLength: 6,

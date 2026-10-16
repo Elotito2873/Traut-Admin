@@ -51,6 +51,44 @@ void main() {
     expect(abandonedTotpIds([pending, verified]), ['pending']);
   });
 
+  for (final code in ['mfa_verification_failed', 'mfa_challenge_expired']) {
+    test('MFA traduce $code sin filtrar detalles internos', () {
+      final mapped = mapMfaAuthException(
+        AuthApiException('server detail', statusCode: '422', code: code),
+      );
+
+      expect(mapped.code, code);
+      expect(
+        mapped.userMessage,
+        'Usa el código actual de tu autenticador e inténtalo nuevamente.',
+      );
+      expect(mapped.userMessage, isNot(contains('server detail')));
+    });
+  }
+
+  test('MFA distingue red y sesión perdida', () {
+    final network = mapMfaAuthException(
+      AuthRetryableFetchException(message: 'socket detail'),
+    );
+    final session = mapMfaAuthException(AuthSessionMissingException());
+
+    expect(network.code, 'mfa_network');
+    expect(network.userMessage, contains('conexión'));
+    expect(session.code, 'session_not_found');
+    expect(session.userMessage, contains('sesión terminó'));
+  });
+
+  test('MFA distingue el timeout envuelto por el cliente Auth', () {
+    final timeout = mapMfaAuthException(
+      AuthRetryableFetchException(
+        message: 'TimeoutException after 0:00:25.000000',
+      ),
+    );
+
+    expect(timeout.code, 'mfa_timeout');
+    expect(timeout.userMessage, contains('tardó demasiado'));
+  });
+
   test('mutaciones no empiezan sin AAL2', () async {
     var requests = 0;
     final repository = SupabaseAdminRepository(

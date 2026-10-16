@@ -42,6 +42,43 @@ Iterable<String> abandonedTotpIds(Iterable<Factor> factors) => factors
     )
     .map((factor) => factor.id);
 
+AppException mapMfaAuthException(AuthException error) {
+  final errorCode = error.code;
+  if (errorCode == 'mfa_verification_failed' ||
+      errorCode == 'mfa_challenge_expired') {
+    return AppException(
+      'Usa el código actual de tu autenticador e inténtalo nuevamente.',
+      code: errorCode,
+      cause: error,
+    );
+  }
+  if (isLostMfaSessionErrorCode(errorCode) ||
+      error is AuthSessionMissingException) {
+    return AppException(
+      'Tu sesión terminó. Inicia sesión nuevamente.',
+      code: errorCode ?? 'session_not_found',
+      cause: error,
+    );
+  }
+  if (error is AuthRetryableFetchException) {
+    final timedOut = error.message.contains('TimeoutException');
+    return AppException(
+      timedOut
+          ? 'La verificación tardó demasiado. Revisa tu conexión y usa el '
+                'código actual de tu autenticador.'
+          : 'No se pudo contactar al servicio de autenticación. '
+                'Revisa tu conexión e inténtalo nuevamente.',
+      code: timedOut ? 'mfa_timeout' : 'mfa_network',
+      cause: error,
+    );
+  }
+  return AppException(
+    'No fue posible verificar el código MFA.',
+    code: errorCode,
+    cause: error,
+  );
+}
+
 RealtimeConnectionStatus realtimeConnectionStatus(
   RealtimeSubscribeStatus status,
 ) => switch (status) {
@@ -178,9 +215,12 @@ class SupabaseAdminRepository
         code: code.trim(),
       );
     } on AuthException catch (error) {
+      throw mapMfaAuthException(error);
+    } on TimeoutException catch (error) {
       throw AppException(
-        'El código no es válido o ya expiró.',
-        code: error.code,
+        'La verificación tardó demasiado. Revisa tu conexión y usa el código '
+        'actual de tu autenticador.',
+        code: 'mfa_timeout',
         cause: error,
       );
     }

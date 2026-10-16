@@ -57,6 +57,7 @@ class AppConfig {
         uri.isScheme('https') &&
         uri.host.isNotEmpty &&
         isSafeClientKey(supabasePublishableKey) &&
+        requireAdminMfa &&
         _isValidTileUrl(tileUrl) &&
         osmUserAgent.trim().isNotEmpty;
   }
@@ -77,6 +78,9 @@ class AppConfig {
         'SUPABASE_PUBLISHABLE_KEY debe ser una clave publicable o anon; '
         'nunca uses service_role ni sb_secret_ en el cliente.',
       );
+    }
+    if (!requireAdminMfa) {
+      errors.add('REQUIRE_ADMIN_MFA debe ser true: Traut Admin requiere AAL2.');
     }
     if (!_isValidTileUrl(tileUrl)) {
       errors.add('OSM_TILE_URL debe ser HTTPS e incluir {z}, {x} y {y}.');

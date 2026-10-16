@@ -23,6 +23,10 @@ de acceso. `locked` conserva el `ShellRoute` montado, lo cubre con una barrera y
 exige otro TOTP; así no descarta silenciosamente formularios abiertos. La barra
 lateral conserva su preferencia local.
 
+La revalidación de rol/AAL se dispara al restaurar o refrescar Auth y al reanudar
+realmente el proceso. La navegación interna no revalida la sesión ni muestra la
+barrera de comprobación.
+
 El flujo Auth es:
 
 1. restaurar o crear sesión Supabase;
@@ -45,8 +49,12 @@ implementa criptografía propia.
   filas de PostgREST; parches Realtime agrupan consultas de 100 IDs;
 - listados relacionados usan embeds PostgREST para evitar N+1;
 - búsquedas esperan 400 ms y se filtran en servidor;
+- dashboard y listados conservan su resultado durante la sesión administrativa;
+  cada mutación, actualización manual y logout invalida los providers afectados;
 - el mapa escucha un solo canal `admin-vehicle-locations` compartido por provider;
-- al cancelar el provider se llama `removeChannel`, evitando canales duplicados;
+- el provider Realtime sí es `autoDispose`: al salir de Monitoreo se llama
+  `removeChannel` y al volver se crea exactamente uno, evitando canales
+  duplicados;
 - el payload extrae `vehicle_id` y agrupa IDs durante 750 ms; se consultan solo
   los IDs cambiados y se mezclan con la lista actual sin perder la cámara;
 - el canal informa conectado/reconectando/timeout/error/cerrado; al reconectar

@@ -6,6 +6,7 @@ import 'package:traut_admin/presentation/controllers/providers.dart';
 
 class _VehicleRepository implements VehicleRepository {
   final requested = <Set<String>>[];
+  int watchCalls = 0;
 
   @override
   Future<List<Vehicle>> getMonitoredVehicles() async => [
@@ -20,6 +21,12 @@ class _VehicleRepository implements VehicleRepository {
       return [_vehicle('vehicle-2', 'U-02', 99)];
     }
     return const [];
+  }
+
+  @override
+  Stream<LocationMonitorEvent> watchLocations() {
+    watchCalls++;
+    return const Stream.empty();
   }
 
   @override
@@ -63,6 +70,29 @@ void main() {
       ]);
     },
   );
+
+  test('Realtime comparte un canal visible y lo reinicia tras salir', () async {
+    final repository = _VehicleRepository();
+    final container = ProviderContainer(
+      overrides: [vehicleRepositoryProvider.overrideWithValue(repository)],
+    );
+    addTearDown(container.dispose);
+
+    final first = container.listen(locationChangesProvider, (_, _) {});
+    final second = container.listen(locationChangesProvider, (_, _) {});
+    await Future<void>.delayed(Duration.zero);
+    expect(repository.watchCalls, 1);
+
+    first.close();
+    second.close();
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    final afterReturn = container.listen(locationChangesProvider, (_, _) {});
+    addTearDown(afterReturn.close);
+    await Future<void>.delayed(Duration.zero);
+    expect(repository.watchCalls, 2);
+  });
 }
 
 Vehicle _vehicle(String id, String code, double speed) => Vehicle(

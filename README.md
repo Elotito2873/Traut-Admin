@@ -38,8 +38,9 @@ Completa únicamente `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`. El archivo
 `config/dev.json` está ignorado por Git. Nunca uses una secret key, `service_role`,
 contraseña de Postgres ni Client Secret.
 
-`REQUIRE_ADMIN_MFA` controla el gate de enrolamiento del cliente y debe ser
-`true` en releases. Los RPC administrativos de 006 ya exigen AAL2;
+`REQUIRE_ADMIN_MFA` debe ser `true`: la aplicación considera `false` una
+configuración inválida y no abre el panel. Los RPC administrativos de 006
+también exigen AAL2;
 `004_require_admin_aal2.sql` sigue pendiente y no debe aplicarse hasta verificar
 que un administrador real completó TOTP y obtuvo `aal2`.
 `ADMIN_INACTIVITY_TIMEOUT_MINUTES` controla el lock local (20 minutos por
@@ -47,6 +48,10 @@ defecto). Con TOTP, conserva formularios y exige un nuevo challenge; sin TOTP
 cierra la sesión y exige reautenticación.
 La sesión no se persiste en disco: al reiniciar se inicia sesión y se comprueba
 de nuevo `profiles.role`.
+
+Para probar TOTP, mantén correcta la hora automática del sistema. Cada envío
+crea un challenge nuevo con el helper oficial de Supabase; si el código o el
+challenge expiró, usa el código actual del autenticador y vuelve a enviarlo.
 
 ## Ejecutar
 

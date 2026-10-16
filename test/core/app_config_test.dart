@@ -27,6 +27,20 @@ void main() {
     expect(config.isValid, isFalse);
     expect(config.validationErrors, contains(contains('OSM_TILE_URL')));
   });
+
+  test('falla cerrado cuando MFA administrativo está desactivado', () {
+    const config = AppConfig(
+      supabaseUrl: 'https://project.supabase.co',
+      supabasePublishableKey: 'sb_publishable_example',
+      requireAdminMfa: false,
+      tileUrl: 'https://tiles.example.com/{z}/{x}/{y}.png',
+      osmUserAgent: 'test',
+    );
+
+    expect(config.isValid, isFalse);
+    expect(config.validationErrors, contains(contains('REQUIRE_ADMIN_MFA')));
+    expect(config.validationErrors, contains(contains('AAL2')));
+  });
 }
 
 String _jwt(String role) {

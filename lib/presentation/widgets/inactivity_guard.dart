@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/errors/app_exception.dart';
 import '../../core/services/inactivity_timer.dart';
 import '../controllers/auth_controller.dart';
 import '../controllers/providers.dart';
@@ -20,6 +21,7 @@ class _InactivityGuardState extends ConsumerState<InactivityGuard>
     with WidgetsBindingObserver {
   late final InactivityTimer _timer;
   final _code = TextEditingController();
+  final _codeFocus = FocusNode();
   final _hoverThrottle = Stopwatch();
   AuthStage? _lastStage;
   DateTime _lastActivity = DateTime.now();
@@ -41,6 +43,7 @@ class _InactivityGuardState extends ConsumerState<InactivityGuard>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timer.dispose();
+    _codeFocus.dispose();
     _code.dispose();
     super.dispose();
   }
@@ -89,6 +92,17 @@ class _InactivityGuardState extends ConsumerState<InactivityGuard>
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
+    ref.listen<AuthViewState>(authControllerProvider, (previous, next) {
+      if (previous?.busy == true &&
+          !next.busy &&
+          next.error != null &&
+          isRetryableMfaErrorCode(next.errorCode)) {
+        _code.clear();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _codeFocus.requestFocus();
+        });
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _syncStage(auth.stage);
     });
@@ -148,6 +162,7 @@ class _InactivityGuardState extends ConsumerState<InactivityGuard>
                               const SizedBox(height: 18),
                               TextField(
                                 controller: _code,
+                                focusNode: _codeFocus,
                                 autofocus: true,
                                 enabled: !auth.busy,
                                 keyboardType: TextInputType.number,

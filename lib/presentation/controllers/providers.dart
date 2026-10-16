@@ -81,7 +81,9 @@ final themeModeProvider = NotifierProvider<ThemeController, ThemeMode>(
   ThemeController.new,
 );
 
-final dashboardProvider = FutureProvider.autoDispose<DashboardMetrics>(
+// Las consultas de catálogo se conservan durante la sesión administrativa.
+// Sus mutaciones y el cierre de sesión las invalidan de forma explícita.
+final dashboardProvider = FutureProvider<DashboardMetrics>(
   (ref) => ref.watch(dashboardRepositoryProvider).getMetrics(),
 );
 
@@ -159,11 +161,12 @@ class MonitoredVehiclesController extends AsyncNotifier<List<Vehicle>> {
 }
 
 final monitoredVehiclesProvider =
-    AsyncNotifierProvider.autoDispose<
-      MonitoredVehiclesController,
-      List<Vehicle>
-    >(MonitoredVehiclesController.new);
+    AsyncNotifierProvider<MonitoredVehiclesController, List<Vehicle>>(
+      MonitoredVehiclesController.new,
+    );
 
+// El canal Realtime solo vive mientras Monitoreo tiene un listener. Así, al
+// abandonar la pantalla se cancela el canal y al volver se crea exactamente uno.
 final locationChangesProvider =
     StreamProvider.autoDispose<LocationMonitorEvent>(
       (ref) => ref.watch(vehicleRepositoryProvider).watchLocations(),
@@ -201,8 +204,8 @@ class VehicleQuery {
       Object.hash(page, pageSize, search, status, sortBy, ascending);
 }
 
-final vehiclesProvider = FutureProvider.autoDispose
-    .family<PagedResult<Vehicle>, VehicleQuery>(
+final vehiclesProvider =
+    FutureProvider.family<PagedResult<Vehicle>, VehicleQuery>(
       (ref, query) => ref
           .watch(vehicleRepositoryProvider)
           .getVehicles(
@@ -215,13 +218,11 @@ final vehiclesProvider = FutureProvider.autoDispose
           ),
     );
 
-final routesProvider = FutureProvider.autoDispose
-    .family<List<TransportRoute>, String>(
-      (ref, search) =>
-          ref.watch(routeRepositoryProvider).getRoutes(search: search),
-    );
+final routesProvider = FutureProvider.family<List<TransportRoute>, String>(
+  (ref, search) => ref.watch(routeRepositoryProvider).getRoutes(search: search),
+);
 
-final routeProvider = FutureProvider.autoDispose.family<TransportRoute, String>(
+final routeProvider = FutureProvider.family<TransportRoute, String>(
   (ref, id) => ref.watch(routeRepositoryProvider).getRoute(id),
 );
 
@@ -248,17 +249,16 @@ class DriverQuery {
   int get hashCode => Object.hash(page, pageSize, search, status);
 }
 
-final driversProvider = FutureProvider.autoDispose
-    .family<PagedResult<Driver>, DriverQuery>(
-      (ref, query) => ref
-          .watch(driverRepositoryProvider)
-          .getDrivers(
-            page: query.page,
-            pageSize: query.pageSize,
-            search: query.search,
-            status: query.status,
-          ),
-    );
+final driversProvider = FutureProvider.family<PagedResult<Driver>, DriverQuery>(
+  (ref, query) => ref
+      .watch(driverRepositoryProvider)
+      .getDrivers(
+        page: query.page,
+        pageSize: query.pageSize,
+        search: query.search,
+        status: query.status,
+      ),
+);
 
 class IncidentQuery {
   const IncidentQuery({this.page = 0, this.pageSize = 25, this.status});
@@ -276,8 +276,8 @@ class IncidentQuery {
   int get hashCode => Object.hash(page, pageSize, status);
 }
 
-final incidentsProvider = FutureProvider.autoDispose
-    .family<PagedResult<Incident>, IncidentQuery>(
+final incidentsProvider =
+    FutureProvider.family<PagedResult<Incident>, IncidentQuery>(
       (ref, query) => ref
           .watch(incidentRepositoryProvider)
           .getIncidents(
@@ -303,13 +303,12 @@ class TripQuery {
   int get hashCode => Object.hash(page, pageSize, status);
 }
 
-final tripsProvider = FutureProvider.autoDispose
-    .family<PagedResult<Trip>, TripQuery>(
-      (ref, query) => ref
-          .watch(tripRepositoryProvider)
-          .getTrips(
-            page: query.page,
-            pageSize: query.pageSize,
-            status: query.status,
-          ),
-    );
+final tripsProvider = FutureProvider.family<PagedResult<Trip>, TripQuery>(
+  (ref, query) => ref
+      .watch(tripRepositoryProvider)
+      .getTrips(
+        page: query.page,
+        pageSize: query.pageSize,
+        status: query.status,
+      ),
+);
